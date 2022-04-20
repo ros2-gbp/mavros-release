@@ -1,1 +1,1 @@
-{"base": "7bd8c52d2", "parent": "debian/rolling/libmavconn", "previous": "2d39bfe7c", "trim": "", "trimbase": ""}
+{"base": "4af47290a", "parent": "debian/humble/libmavconn", "previous": "c7a5e9e8d", "trim": "", "trimbase": ""}
