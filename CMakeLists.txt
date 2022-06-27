@@ -3,8 +3,8 @@ project(mavros_extras)
 
 # Default to C++20
 if(NOT CMAKE_CXX_STANDARD)
-  set(CMAKE_CXX_STANDARD 20)
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++2a")
+  set(CMAKE_CXX_STANDARD 17)
+  #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++2a")
 endif()
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   # we dont use add_compile_options with pedantic in message packages
@@ -86,6 +86,7 @@ add_library(mavros_extras_plugins SHARED
   src/plugins/adsb.cpp
   src/plugins/cam_imu_sync.cpp
   src/plugins/camera.cpp
+  src/plugins/cellular_status.cpp
   src/plugins/companion_process_status.cpp
   src/plugins/debug_value.cpp
   src/plugins/distance_sensor.cpp
@@ -115,7 +116,7 @@ add_library(mavros_extras_plugins SHARED
   src/plugins/vision_pose_estimate.cpp
   src/plugins/vision_speed_estimate.cpp
   src/plugins/wheel_odometry.cpp
-  # [[[end]]] (checksum: cb9fe2c8485e38ad6be75ed375863339)
+  # [[[end]]] (checksum: f264e21952350f8783aca6e5c92ea6fb)
 )
 ament_target_dependencies(mavros_extras_plugins
   angles
@@ -126,6 +127,7 @@ ament_target_dependencies(mavros_extras_plugins
   std_msgs
   std_srvs
   sensor_msgs
+  pluginlib
   nav_msgs
   trajectory_msgs
   rclcpp

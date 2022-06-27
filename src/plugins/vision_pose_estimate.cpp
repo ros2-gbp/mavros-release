@@ -56,7 +56,7 @@ public:
     enable_node_watch_parameters();
 
     // tf params
-    node_declate_and_watch_parameter(
+    node_declare_and_watch_parameter(
       "tf/listen", false, [&](const rclcpp::Parameter & p) {
         auto tf_listen = p.as_bool();
         if (tf_listen) {
@@ -75,17 +75,17 @@ public:
         }
       });
 
-    node_declate_and_watch_parameter(
+    node_declare_and_watch_parameter(
       "tf/frame_id", "map", [&](const rclcpp::Parameter & p) {
         tf_frame_id = p.as_string();
       });
 
-    node_declate_and_watch_parameter(
+    node_declare_and_watch_parameter(
       "tf/child_frame_id", "vision_estimate", [&](const rclcpp::Parameter & p) {
         tf_child_frame_id = p.as_string();
       });
 
-    node_declate_and_watch_parameter(
+    node_declare_and_watch_parameter(
       "tf/rate_limit", 10.0, [&](const rclcpp::Parameter & p) {
         tf_rate = p.as_double();
       });
@@ -107,7 +107,7 @@ private:
 
   double tf_rate;
 
-  rclcpp::Time last_transform_stamp;
+  rclcpp::Time last_transform_stamp{0, 0, RCL_ROS_TIME};
 
   /* -*- low-level send -*- */
   /**
@@ -132,12 +132,6 @@ private:
 
     auto cov_ned = ftf::transform_frame_enu_ned(cov);
     ftf::EigenMapConstCovariance6d cov_map(cov_ned.data());
-
-    RCLCPP_INFO_STREAM(
-      get_logger(),
-      "Listen to vision transform " << tf_frame_id <<
-        " -> " << tf_child_frame_id);
-
 
     mavlink::common::msg::VISION_POSITION_ESTIMATE vp{};
 
