@@ -1,0 +1,12 @@
+Source: ros-humble-mavros-extras
+Section: misc
+Priority: optional
+Maintainer: Vladimir Ermakov <vooon341@gmail.com>
+Build-Depends: debhelper (>= 9.0.0), geographiclib-tools, google-mock <!nocheck>, libeigen3-dev, libgeographic-dev, libgtest-dev <!nocheck>, libyaml-cpp-dev, ros-humble-ament-cmake, ros-humble-ament-cmake-gmock <!nocheck>, ros-humble-ament-cmake-gtest <!nocheck>, ros-humble-ament-cmake-python, ros-humble-ament-lint-auto <!nocheck>, ros-humble-ament-lint-common <!nocheck>, ros-humble-angles, ros-humble-diagnostic-msgs, ros-humble-diagnostic-updater, ros-humble-eigen-stl-containers, ros-humble-eigen3-cmake-module, ros-humble-geographic-msgs, ros-humble-geometry-msgs, ros-humble-libmavconn, ros-humble-mavlink, ros-humble-mavros, ros-humble-mavros-msgs, ros-humble-message-filters, ros-humble-nav-msgs, ros-humble-pluginlib, ros-humble-rclcpp, ros-humble-rclcpp-components, ros-humble-rcpputils, ros-humble-sensor-msgs, ros-humble-std-msgs, ros-humble-std-srvs, ros-humble-tf2-eigen, ros-humble-tf2-ros, ros-humble-trajectory-msgs, ros-humble-urdf, ros-humble-visualization-msgs, ros-humble-yaml-cpp-vendor, ros-humble-ros-workspace
+Homepage: http://wiki.ros.org/mavros_extras
+Standards-Version: 3.9.2
+
+Package: ros-humble-mavros-extras
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, geographiclib-tools, libeigen3-dev, libgeographic-dev, libyaml-cpp-dev, ros-humble-diagnostic-msgs, ros-humble-diagnostic-updater, ros-humble-eigen-stl-containers, ros-humble-eigen3-cmake-module, ros-humble-geographic-msgs, ros-humble-geometry-msgs, ros-humble-libmavconn, ros-humble-mavlink, ros-humble-mavros, ros-humble-mavros-msgs, ros-humble-message-filters, ros-humble-nav-msgs, ros-humble-pluginlib, ros-humble-rclcpp, ros-humble-rclcpp-components, ros-humble-rcpputils, ros-humble-rosidl-default-runtime, ros-humble-sensor-msgs, ros-humble-std-msgs, ros-humble-std-srvs, ros-humble-tf2-eigen, ros-humble-tf2-ros, ros-humble-trajectory-msgs, ros-humble-urdf, ros-humble-visualization-msgs, ros-humble-yaml-cpp-vendor, ros-humble-ros-workspace
+Description: Extra nodes and plugins for MAVROS.
