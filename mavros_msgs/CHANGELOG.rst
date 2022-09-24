@@ -2,6 +2,21 @@
 Changelog for package mavros_msgs
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+2.3.0 (2022-09-24)
+------------------
+* Merge branch 'master' into ros2
+  * master:
+  1.14.0
+  update changelog
+  scripts: waypoint and param files are text, not binary
+  libmavconn: fix MAVLink v1.0 output selection
+  plugins: add guided_target to accept offboard position targets
+  add cmake module path for geographiclib on debian based systems
+  use already installed FindGeographicLib.cmake
+* 1.14.0
+* update changelog
+* Contributors: Vladimir Ermakov
+
 2.2.0 (2022-06-27)
 ------------------
 * Merge branch 'master' into ros2
@@ -27,13 +42,6 @@ Changelog for package mavros_msgs
   Bugfix: wrong interpolation when the reduction ratio (scale_factor) is not integer.
   Disable startup_px4_usb_quirk in px4_config.yaml
 * msgs: support humble
-* Merge pull request `#1742 <https://github.com/mavlink/mavros/issues/1742>`_ from amilcarlucas/correct_rpm_units
-  ESCTelemetryItem.msg: correct RPM units
-* ESCTelemetryItem.msg: correct RPM units
-* Merge pull request `#1727 <https://github.com/mavlink/mavros/issues/1727>`_ from BV-OpenSource/pr-cellular-status
-  Pr cellular status
-* Add CellularStatus plugin and message
-* Contributors: Dr.-Ing. Amilcar do Carmo Lucas, Rui Mendes, Vladimir Ermakov
 
 2.1.1 (2022-03-02)
 ------------------
@@ -295,6 +303,16 @@ Changelog for package mavros_msgs
   add ros1_bridge mapping rule for renamed VfrHud message
 * make mavro_msgs compile in ROS 2
 * Contributors: Mikael Arguedas, Mike Lautman, Vladimir Ermakov
+
+1.14.0 (2022-09-24)
+-------------------
+* Merge pull request `#1742 <https://github.com/mavlink/mavros/issues/1742>`_ from amilcarlucas/correct_rpm_units
+  ESCTelemetryItem.msg: correct RPM units
+* ESCTelemetryItem.msg: correct RPM units
+* Merge pull request `#1727 <https://github.com/mavlink/mavros/issues/1727>`_ from BV-OpenSource/pr-cellular-status
+  Pr cellular status
+* Add CellularStatus plugin and message
+* Contributors: Dr.-Ing. Amilcar do Carmo Lucas, Rui Mendes, Vladimir Ermakov
 
 1.13.0 (2022-01-13)
 -------------------
