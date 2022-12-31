@@ -1,3 +1,30 @@
+## mavros (humble) - 2.4.0-1
+
+The packages in the `mavros` repository were released into the `humble` distro by running `/usr/bin/bloom-release -r humble mavros` on `Sat, 31 Dec 2022 15:05:09 -0000`
+
+These packages were released:
+- `libmavconn`
+- `mavros`
+- `mavros_extras`
+- `mavros_msgs`
+
+Version of package(s) in repository `mavros`:
+
+- upstream repository: https://github.com/mavlink/mavros.git
+- release repository: https://github.com/ros2-gbp/mavros-release.git
+- rosdistro version: `2.3.0-1`
+- old version: `2.3.0-1`
+- new version: `2.4.0-1`
+
+Versions of tools used:
+
+- bloom version: `0.11.2`
+- catkin_pkg version: `0.5.2`
+- rosdep version: `0.22.1`
+- rosdistro version: `0.9.0`
+- vcstools version: `0.1.42`
+
+
 ## mavros (rolling) - 2.3.0-1
 
 The packages in the `mavros` repository were released into the `rolling` distro by running `/usr/bin/bloom-release -r rolling mavros` on `Sat, 24 Sep 2022 23:09:01 -0000`
