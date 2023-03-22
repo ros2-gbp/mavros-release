@@ -274,4 +274,5 @@ tracks:
     ros_distro: rolling
     vcs_type: git
     vcs_uri: https://github.com/mavlink/mavros.git
-    version: :{auto}
+    version: 2.4.0
+    version_saved: :{auto}
