@@ -1,1 +1,1 @@
-{"base": "10f074937", "parent": "debian/rolling/mavros_msgs", "previous": "562890f5d", "trim": "", "trimbase": ""}
+{"base": "b65acbb03", "parent": "debian/iron/mavros_msgs", "previous": "a6f6253ef", "trim": "", "trimbase": ""}
