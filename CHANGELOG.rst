@@ -2,6 +2,104 @@
 Changelog for package mavros
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+2.6.0 (2023-09-09)
+------------------
+* fix build warnings tf2_eigen.h
+* switch to use tf2_eigen.hpp, but that drops support for EOL distros
+* fix ament_cpplint
+* reformat python code with black
+* msgs: move generator code
+* ament uncrustify
+* Merge branch 'master' into ros2
+  * master:
+  1.17.0
+  update changelog
+  cog: regenerate all
+  Bugfix/update map origin with home position (`#1892 <https://github.com/mavlink/mavros/issues/1892>`_)
+  mavros: Remove extra ';'
+  mavros_extras: Fix some init order warnings
+  Suppress warnings from included headers
+  1.16.0
+  update changelog
+  made it such that the gp_origin topic published latched.
+  use hpp instead of deprecated .h pluginlib headers
+* 1.17.0
+* update changelog
+* cog: regenerate all
+* local takeoff and land topics (`#1890 <https://github.com/mavlink/mavros/issues/1890>`_)
+  * local takeoff and land topics
+  * vector3 position type, rename to TOLLocal
+  * remove auto include line
+* Bugfix/update map origin with home position (`#1892 <https://github.com/mavlink/mavros/issues/1892>`_)
+  * Update map origin with home position
+  * Uncrustify
+  * Revert "Uncrustify"
+  This reverts commit f1387c79c7670cc241986586436e3da43842e877.
+  * Change to relative topic
+  ---------
+  Co-authored-by: Natalia Molina <molina-munoz@wingcopter.com>
+* Merge pull request `#1865 <https://github.com/mavlink/mavros/issues/1865>`_ from scoutdi/warnings
+  Fix / suppress some build warnings
+* mavros: Remove extra ';'
+* Suppress warnings from included headers
+* 1.16.0
+* update changelog
+* Merge pull request `#1829 <https://github.com/mavlink/mavros/issues/1829>`_ from snwu1996/latched_gp_origin_pub
+  Made it such that the gp_origin topic publisher is latched.
+* made it such that the gp_origin topic published latched.
+* Merge pull request `#1817 <https://github.com/mavlink/mavros/issues/1817>`_ from lucasw/pluginlib_hpp
+  use hpp instead of deprecated .h pluginlib headers
+* use hpp instead of deprecated .h pluginlib headers
+* Contributors: Ido Guzi, Lucas Walter, Morten Fyhn Amundsen, Shu-Nong Wu, Vladimir Ermakov, natmol
+
+2.5.0 (2023-05-05)
+------------------
+* Merge pull request `#1852 <https://github.com/mavlink/mavros/issues/1852>`_ from robobe/fix-mavlink-header-stamp
+  Fix mavlink header stamp in convert_to_rosmsg method
+* Delete test_convert_to_rosmsg.py
+* fix flake8
+* fix flake8
+* fix conver_to_rosmsg method
+  fix header stamp field
+  move from rclpy.Time to
+  builtin_interfaces Time message
+* Merge branch 'mavlink_payload64_fix' into ros2
+* Merge pull request `#1851 <https://github.com/mavlink/mavros/issues/1851>`_ from robobe/mavlink_payload64_fix
+  cast payload_octest to int
+* cast payload_octest to int
+  test script ,
+* Merge pull request `#1838 <https://github.com/mavlink/mavros/issues/1838>`_ from vacabun/launch_namespace_fix
+  fix ROS2 launch parameters namespace and name.
+* fix plugin denylist allowlist name, and fix parameters namespace.
+* Merge pull request `#1835 <https://github.com/mavlink/mavros/issues/1835>`_ from vacabun/multi_uas_launch_fix
+  Multi-UAS launch
+* Merge branch 'ros2' into multi_uas_launch_fix
+* Merge pull request `#1836 <https://github.com/mavlink/mavros/issues/1836>`_ from eMrazSVK/ros2
+  Fix apm_pluginlist.yaml and apm.launch
+* naming
+* Fix apm config and launch ROS2
+* Remove duplicate parameters
+* fix parameters name tgt_system and tgt_component and add multi-uas launch.
+* Merge pull request `#1834 <https://github.com/mavlink/mavros/issues/1834>`_ from vacabun/px4_launch_fix
+  fix px4 launch file for ROS2
+* change plugin odom parameters in apm launch.
+* 1.Change part of parameters to be flat In ROS2.
+  2.Remove plugin safety_area in launch parameters file.
+* remove event_launcher.yaml mavlink_bridge.launch
+* remove file 'apm2.lunch'.
+* fix apm launch files to ROS2.
+* fix plugin distance_sensor parses yaml from string parameter.
+* fix px4 launch file on ROS2.
+* Merge pull request `#1833 <https://github.com/mavlink/mavros/issues/1833>`_ from lopsided98/ftp-segfault
+  plugins: ftp: fix null pointer dereference
+* plugins: ftp: fix null pointer dereference
+  df4e529 mistakenly switched PayloadHeader::data from using a non-standards
+  compliant (but accepted by most compilers) flexible array to a pointer. This
+  resulted in an attempt to dereference the uninitialized contents of the array.
+  This patch eliminates PayloadHeader::data and instead makes FTPRequest::data()
+  use pointer arithmetic to get the data buffer from within the payload buffer.
+* Contributors: Ben Wolsieffer, Eduard Mraz, Vladimir Ermakov, robo, robobe, vacabun
+
 2.4.0 (2022-12-30)
 ------------------
 * ci: ignore xml lib warn
@@ -100,6 +198,33 @@ Changelog for package mavros
 * Make compatible with pymavlink type annotations PR
   In that PR, the attribute name is changed to msgname due to conflicts
   with message instance variables.
+
+1.17.0 (2023-09-09)
+-------------------
+* cog: regenerate all
+* Bugfix/update map origin with home position (`#1892 <https://github.com/mavlink/mavros/issues/1892>`_)
+  * Update map origin with home position
+  * Uncrustify
+  * Revert "Uncrustify"
+  This reverts commit f1387c79c7670cc241986586436e3da43842e877.
+  * Change to relative topic
+  ---------
+  Co-authored-by: Natalia Molina <molina-munoz@wingcopter.com>
+* Merge pull request `#1865 <https://github.com/mavlink/mavros/issues/1865>`_ from scoutdi/warnings
+  Fix / suppress some build warnings
+* mavros: Remove extra ';'
+* Suppress warnings from included headers
+* Contributors: Morten Fyhn Amundsen, Vladimir Ermakov, natmol
+
+1.16.0 (2023-05-05)
+-------------------
+* Merge pull request `#1829 <https://github.com/mavlink/mavros/issues/1829>`_ from snwu1996/latched_gp_origin_pub
+  Made it such that the gp_origin topic publisher is latched.
+* made it such that the gp_origin topic published latched.
+* Merge pull request `#1817 <https://github.com/mavlink/mavros/issues/1817>`_ from lucasw/pluginlib_hpp
+  use hpp instead of deprecated .h pluginlib headers
+* use hpp instead of deprecated .h pluginlib headers
+* Contributors: Lucas Walter, Shu-Nong Wu, Vladimir Ermakov
 
 1.15.0 (2022-12-30)
 -------------------
