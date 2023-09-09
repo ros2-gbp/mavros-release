@@ -69,6 +69,7 @@ set(msg_files
   msg/MountControl.msg
   msg/NavControllerOutput.msg
   msg/OnboardComputerStatus.msg
+  msg/OpticalFlow.msg
   msg/OpticalFlowRad.msg
   msg/OverrideRCIn.msg
   msg/Param.msg
@@ -95,7 +96,7 @@ set(msg_files
   msg/WaypointList.msg
   msg/WaypointReached.msg
   msg/WheelOdomStamped.msg
-  # [[[end]]] (checksum: cf55cc727ab8f7a2823267cab0dd1bf3)
+  # [[[end]]] (checksum: 85146eea3330278f18b4434a23e257f0)
 )
 
 set(srv_files
@@ -108,6 +109,7 @@ set(srv_files
   srv/CommandInt.srv
   srv/CommandLong.srv
   srv/CommandTOL.srv
+  srv/CommandTOLLocal.srv
   srv/CommandTriggerControl.srv
   srv/CommandTriggerInterval.srv
   srv/CommandVtolTransition.srv
@@ -142,7 +144,7 @@ set(srv_files
   srv/WaypointPull.srv
   srv/WaypointPush.srv
   srv/WaypointSetCurrent.srv
-  # [[[end]]] (checksum: a011691dec330a2a89d35288ebf05c55)
+  # [[[end]]] (checksum: def9cd208ca118971750a304b784d92a)
 )
 
 rosidl_generate_interfaces(${PROJECT_NAME}
