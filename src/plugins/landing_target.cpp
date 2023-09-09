@@ -14,11 +14,10 @@
  * https://github.com/mavlink/mavros/tree/master/LICENSE.md
  */
 
-#include <tf2_eigen/tf2_eigen.h>
-
 #include <algorithm>
 #include <string>
 
+#include "tf2_eigen/tf2_eigen.hpp"
 #include "rcpputils/asserts.hpp"
 #include "mavros/mavros_uas.hpp"
 #include "mavros/utils.hpp"
@@ -449,7 +448,8 @@ private:
     Eigen::Affine3d tr;
     tf2::fromMsg(req->pose, tr);
 
-    send_landing_target(req->header.stamp, tr);
+    rclcpp::Time sys_time(req->header.stamp, RCL_SYSTEM_TIME);
+    send_landing_target(sys_time, tr);
   }
 
   /**
