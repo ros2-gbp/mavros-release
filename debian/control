@@ -1,0 +1,12 @@
+Source: ros-humble-mavros
+Section: misc
+Priority: optional
+Maintainer: Vladimir Ermakov <vooon341@gmail.com>
+Build-Depends: debhelper (>= 9.0.0), geographiclib-tools, google-mock <!nocheck>, libconsole-bridge-dev, libeigen3-dev, libgeographic-dev, libgtest-dev <!nocheck>, ros-humble-ament-cmake, ros-humble-ament-cmake-gmock <!nocheck>, ros-humble-ament-cmake-gtest <!nocheck>, ros-humble-ament-cmake-pytest <!nocheck>, ros-humble-ament-cmake-python, ros-humble-ament-lint-auto <!nocheck>, ros-humble-ament-lint-common <!nocheck>, ros-humble-angles, ros-humble-diagnostic-msgs, ros-humble-diagnostic-updater, ros-humble-eigen-stl-containers, ros-humble-eigen3-cmake-module, ros-humble-geographic-msgs, ros-humble-geometry-msgs, ros-humble-libmavconn, ros-humble-mavlink, ros-humble-mavros-msgs, ros-humble-message-filters, ros-humble-nav-msgs, ros-humble-pluginlib, ros-humble-rclcpp, ros-humble-rclcpp-components, ros-humble-rcpputils, ros-humble-sensor-msgs, ros-humble-std-msgs, ros-humble-std-srvs, ros-humble-tf2-eigen, ros-humble-tf2-ros, ros-humble-trajectory-msgs, ros-humble-ros-workspace
+Homepage: http://wiki.ros.org/mavros
+Standards-Version: 3.9.2
+
+Package: ros-humble-mavros
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, geographiclib-tools, libconsole-bridge-dev, libeigen3-dev, libgeographic-dev, python3-click, ros-humble-diagnostic-msgs, ros-humble-diagnostic-updater, ros-humble-eigen-stl-containers, ros-humble-eigen3-cmake-module, ros-humble-geographic-msgs, ros-humble-geometry-msgs, ros-humble-libmavconn, ros-humble-mavlink, ros-humble-mavros-msgs, ros-humble-message-filters, ros-humble-nav-msgs, ros-humble-pluginlib, ros-humble-rclcpp, ros-humble-rclcpp-components, ros-humble-rclpy, ros-humble-rcpputils, ros-humble-rosidl-default-runtime, ros-humble-sensor-msgs, ros-humble-std-msgs, ros-humble-std-srvs, ros-humble-tf2-eigen, ros-humble-tf2-ros, ros-humble-trajectory-msgs, ros-humble-ros-workspace
+Description: MAVROS -- MAVLink extendable communication node for ROS with proxy for Ground Control Station.
