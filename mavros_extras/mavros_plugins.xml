@@ -225,12 +225,12 @@ to FCU position and attitude estimators.</description>
 Send velocity estimation from various vision estimators
 to FCU position and attitude estimators.</description>
   </class>
-  <class name="wheel_odomotry" type="mavros::plugin::PluginFactoryTemplate&lt;mavros::extra_plugins::WheelOdometryPlugin&gt;" base_class_type="mavros::plugin::PluginFactory">
+  <class name="wheel_odometry" type="mavros::plugin::PluginFactoryTemplate&lt;mavros::extra_plugins::WheelOdometryPlugin&gt;" base_class_type="mavros::plugin::PluginFactory">
     <description>@brief Wheel odometry plugin.
-@plugin wheel_odomotry
+@plugin wheel_odometry
 
 This plugin allows computing and publishing wheel odometry coming from FCU wheel encoders.
 Can use either wheel's RPM or WHEEL_DISTANCE messages (the latter gives better accuracy).</description>
   </class>
 </library>
-<!-- [[[end]]] (checksum: 4c4e8da806a050322553237a8e17a0c6) -->
+<!-- [[[end]]] (checksum: b03a63f9e6aa3dc5c0edc9f744c9d8ef) -->
