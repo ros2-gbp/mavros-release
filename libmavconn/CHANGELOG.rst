@@ -2,6 +2,20 @@
 Changelog for package libmavconn
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+2.8.0 (2024-06-07)
+------------------
+* Merge branch 'master' into ros2
+  * master:
+  1.19.0
+  update changelog
+  gps_global_origin: remove LLA to ECEF conversion
+* 1.19.0
+* update changelog
+* Contributors: Vladimir Ermakov
+
+1.19.0 (2024-06-06)
+-------------------
+
 2.7.0 (2024-03-03)
 ------------------
 * Merge branch 'master' into ros2

@@ -588,25 +588,31 @@ public:
 
     srv_cg = node->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
 
+#ifdef USE_OLD_RMW_QOS
+    auto services_qos = rmw_qos_profile_services_default;
+#else
+    auto services_qos = rclcpp::ServicesQoS();
+#endif
+
     mode_srv = node->create_service<mavros_msgs::srv::SetMode>(
       "set_mode",
       std::bind(
         &SystemStatusPlugin::set_mode_cb, this, _1,
-        _2), rmw_qos_profile_services_default, srv_cg);
+        _2), services_qos, srv_cg);
     stream_rate_srv = node->create_service<mavros_msgs::srv::StreamRate>(
       "set_stream_rate",
       std::bind(
         &SystemStatusPlugin::set_rate_cb, this, _1,
-        _2), rmw_qos_profile_services_default, srv_cg);
+        _2), services_qos, srv_cg);
     message_interval_srv = node->create_service<mavros_msgs::srv::MessageInterval>(
       "set_message_interval",
       std::bind(
         &SystemStatusPlugin::set_message_interval_cb, this, _1,
-        _2), rmw_qos_profile_services_default, srv_cg);
+        _2), services_qos, srv_cg);
     vehicle_info_get_srv = node->create_service<mavros_msgs::srv::VehicleInfoGet>(
       "vehicle_info_get", std::bind(
         &SystemStatusPlugin::vehicle_info_get_cb, this, _1,
-        _2), rmw_qos_profile_services_default, srv_cg);
+        _2), services_qos, srv_cg);
 
     uas->diagnostic_updater.add(hb_diag);
 
@@ -780,9 +786,8 @@ private:
       case enum_value(MAV_SEVERITY::ALERT):
       case enum_value(MAV_SEVERITY::CRITICAL):
       case enum_value(MAV_SEVERITY::ERROR):
-        RCLCPP_ERROR_STREAM(
-          node->get_logger(),
-          "FCU: EVENT " << px4_id << " with args " << arg_str);
+        RCLCPP_ERROR_STREAM(node->get_logger(),
+            "FCU: EVENT " << px4_id << " with args " << arg_str);
         break;
       case enum_value(MAV_SEVERITY::WARNING):
       case enum_value(MAV_SEVERITY::NOTICE):
@@ -792,9 +797,8 @@ private:
         RCLCPP_INFO_STREAM(node->get_logger(), "FCU: EVENT " << px4_id << " with args " << arg_str);
         break;
       case enum_value(MAV_SEVERITY::DEBUG):
-        RCLCPP_DEBUG_STREAM(
-          node->get_logger(),
-          "FCU: EVENT " << px4_id << " with args " << arg_str);
+        RCLCPP_DEBUG_STREAM(node->get_logger(),
+            "FCU: EVENT " << px4_id << " with args " << arg_str);
         break;
       // [[[end]]] (checksum: 83f5eab6a8989f95de46d2a95387304c)
       default:
