@@ -2,6 +2,82 @@
 Changelog for package mavros
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+2.8.0 (2024-06-07)
+------------------
+* param: replace old rmw_qos usage
+* sys_status: replace rmw_qos too
+* command: fix humble condition
+* regenerate all using cogall.sh
+* command: keep support for humble
+* command: fix misprint
+* command: replace deprecated rmw_qos
+* reformat with jazzy's ament_uncrustify
+* Merge branch 'master' into ros2
+  * master:
+  1.19.0
+  update changelog
+  gps_global_origin: remove LLA to ECEF conversion
+* 1.19.0
+* update changelog
+* gps_global_origin: remove LLA to ECEF conversion
+  gps_global_origin is being published as
+  geographic_msgs::GeoPointStamped
+  message, which wants LLA format
+  https://docs.ros.org/en/api/geographic_msgs/html/msg/GeoPointStamped.html
+  FIX https://github.com/mavlink/mavros/issues/1381
+* Update mavlink.py
+  Kept `#569 <https://github.com/mavlink/mavros/issues/569>`_ FIXME tag
+* Update mavlink.py
+  Fixed bug `#569 <https://github.com/mavlink/mavros/issues/569>`_ from mavros. Fixed another bug in the building of the ros mavlink message- the seq field was not added to the ros mavlink message.
+* Contributors: Beniamino Pozzan, Vladimir Ermakov, danielkalmanson
+
+1.19.0 (2024-06-06)
+-------------------
+* gps_global_origin: remove LLA to ECEF conversion
+  gps_global_origin is being published as
+  geographic_msgs::GeoPointStamped
+  message, which wants LLA format
+  https://docs.ros.org/en/api/geographic_msgs/html/msg/GeoPointStamped.html
+  FIX https://github.com/mavlink/mavros/issues/1381
+* Contributors: Beniamino Pozzan
+
+2.7.0 (2024-03-03)
+------------------
+* Merge branch 'master' into ros2
+  * master:
+  1.18.0
+  update changelog
+  sys_status.cpp: improve timeout code
+  sys_status.cpp: Add a SYS_STATUS message publisher
+  [camera plugin] Fix image_index and capture_result not properly filled
+  Fix missing semi-colon
+  GPS_STATUS Plugin: Fill in available messages for ROS1 legacy
+* 1.18.0
+* update changelog
+* move /conn parameters to /sys and /time
+* sys_status.cpp: improve timeout code
+  # Conflicts:
+  #	mavros/src/plugins/sys_status.cpp
+* sys_status.cpp: Add a SYS_STATUS message publisher
+* Removed warning from geometry2 header
+* Fix PR 1922 regarding EVENT message
+* use synchronise_stamp to create stamp
+* new checksum for event enum
+* remove event_time_boot_ms, fill stamp instead
+* handle events
+* fix mav service  call and wp load
+* Remove hardcoded namespace from px4_pluginlists
+* Remove hardcoded namespace from px4_config
+* Define _frd frames in odom plugin based on parent/child frame parametrs
+* Define parameters for base_link, odom, map frames
+* Contributors: Alejandro Hernández Cordero, Dr.-Ing. Amilcar do Carmo Lucas, Mattia Giurato, Mohamed Abdelkader, Vladimir Ermakov, elgarbe, sathak93, victor
+
+1.18.0 (2024-03-03)
+-------------------
+* sys_status.cpp: improve timeout code
+* sys_status.cpp: Add a SYS_STATUS message publisher
+* Contributors: Dr.-Ing. Amilcar do Carmo Lucas
+
 2.6.0 (2023-09-09)
 ------------------
 * fix build warnings tf2_eigen.h
