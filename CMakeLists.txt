@@ -77,6 +77,12 @@ if(rclcpp_VERSION VERSION_LESS 9.0.0)
   )
 endif()
 
+if(rclcpp_VERSION VERSION_LESS 17.0.0)
+  # Humble and older
+  add_definitions(
+    -DUSE_OLD_RMW_QOS
+  )
+endif()
 
 # [[[cog:
 # import mavros_cog
@@ -98,6 +104,7 @@ add_library(mavros_extras_plugins SHARED
   src/plugins/esc_status.cpp
   src/plugins/esc_telemetry.cpp
   src/plugins/fake_gps.cpp
+  src/plugins/gimbal_control.cpp
   src/plugins/gps_input.cpp
   src/plugins/gps_rtk.cpp
   src/plugins/gps_status.cpp
@@ -123,7 +130,7 @@ add_library(mavros_extras_plugins SHARED
   src/plugins/vision_pose_estimate.cpp
   src/plugins/vision_speed_estimate.cpp
   src/plugins/wheel_odometry.cpp
-  # [[[end]]] (checksum: e9b770ce685f15417fe9a859f1157b88)
+  # [[[end]]] (checksum: 1f8cd51fa90b89b27ee35d276b5f8c83)
 )
 ament_target_dependencies(mavros_extras_plugins
   angles
