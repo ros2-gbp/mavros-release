@@ -2,6 +2,45 @@
 Changelog for package mavros
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+2.8.0 (2024-06-07)
+------------------
+* param: replace old rmw_qos usage
+* sys_status: replace rmw_qos too
+* command: fix humble condition
+* regenerate all using cogall.sh
+* command: keep support for humble
+* command: fix misprint
+* command: replace deprecated rmw_qos
+* reformat with jazzy's ament_uncrustify
+* Merge branch 'master' into ros2
+  * master:
+  1.19.0
+  update changelog
+  gps_global_origin: remove LLA to ECEF conversion
+* 1.19.0
+* update changelog
+* gps_global_origin: remove LLA to ECEF conversion
+  gps_global_origin is being published as
+  geographic_msgs::GeoPointStamped
+  message, which wants LLA format
+  https://docs.ros.org/en/api/geographic_msgs/html/msg/GeoPointStamped.html
+  FIX https://github.com/mavlink/mavros/issues/1381
+* Update mavlink.py
+  Kept `#569 <https://github.com/mavlink/mavros/issues/569>`_ FIXME tag
+* Update mavlink.py
+  Fixed bug `#569 <https://github.com/mavlink/mavros/issues/569>`_ from mavros. Fixed another bug in the building of the ros mavlink message- the seq field was not added to the ros mavlink message.
+* Contributors: Beniamino Pozzan, Vladimir Ermakov, danielkalmanson
+
+1.19.0 (2024-06-06)
+-------------------
+* gps_global_origin: remove LLA to ECEF conversion
+  gps_global_origin is being published as
+  geographic_msgs::GeoPointStamped
+  message, which wants LLA format
+  https://docs.ros.org/en/api/geographic_msgs/html/msg/GeoPointStamped.html
+  FIX https://github.com/mavlink/mavros/issues/1381
+* Contributors: Beniamino Pozzan
+
 2.7.0 (2024-03-03)
 ------------------
 * Merge branch 'master' into ros2
