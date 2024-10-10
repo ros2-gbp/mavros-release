@@ -14,7 +14,6 @@ import typing
 from collections import OrderedDict
 
 import rclpy
-
 from mavros_msgs.msg import CommandCode, Waypoint, WaypointList
 from mavros_msgs.srv import (
     WaypointClear,
@@ -92,20 +91,20 @@ class QGroundControlWPL(PlanFile):
     known_versions = (110, 120)
 
     FieldTypes = typing.Union[bool, int, float]
-    fields_map: typing.Mapping[
-        str, typing.Callable[[typing.Any], FieldTypes]
-    ] = OrderedDict(
-        is_current=lambda x: bool(int(x)),
-        frame=int,
-        command=int,
-        param1=float,
-        param2=float,
-        param3=float,
-        param4=float,
-        x_lat=float,
-        y_long=float,
-        z_alt=float,
-        autocontinue=lambda x: bool(int(x)),
+    fields_map: typing.Mapping[str, typing.Callable[[typing.Any], FieldTypes]] = (
+        OrderedDict(
+            is_current=lambda x: bool(int(x)),
+            frame=int,
+            command=int,
+            param1=float,
+            param2=float,
+            param3=float,
+            param4=float,
+            x_lat=float,
+            y_long=float,
+            z_alt=float,
+            autocontinue=lambda x: bool(int(x)),
+        )
     )
 
     class CSVDialect(csv.Dialect):
