@@ -10,11 +10,10 @@
 import rclpy
 from geographic_msgs.msg import GeoPoseStamped
 from geometry_msgs.msg import PoseStamped, Twist, TwistStamped, Vector3Stamped
+from mavros_msgs.msg import AttitudeTarget, GlobalPositionTarget, PositionTarget, Thrust
 from nav_msgs.msg import Path
 from std_srvs.srv import Trigger
 from trajectory_msgs.msg import MultiDOFJointTrajectory
-
-from mavros_msgs.msg import AttitudeTarget, GlobalPositionTarget, PositionTarget, Thrust
 
 from .base import SENSOR_QOS, PluginModule, SubscriptionCallable, cached_property
 
@@ -22,12 +21,14 @@ QOS = SENSOR_QOS
 
 
 class SetpointAccelPlugin(PluginModule):
+
     @cached_property
     def pub_accel(self) -> rclpy.node.Publisher:
         return self.create_publisher(Vector3Stamped, ("setpoint_accel", "accel"), QOS)
 
 
 class SetpointAttitudePlugin(PluginModule):
+
     @cached_property
     def pub_attitude(self) -> rclpy.node.Publisher:
         return self.create_publisher(
@@ -46,6 +47,7 @@ class SetpointAttitudePlugin(PluginModule):
 
 
 class SetpointPositionPlugin(PluginModule):
+
     @cached_property
     def pub_local(self) -> rclpy.node.Publisher:
         return self.create_publisher(PoseStamped, ("setpoint_position", "local"), QOS)
@@ -64,6 +66,7 @@ class SetpointPositionPlugin(PluginModule):
 
 
 class SetpointRawPlugin(PluginModule):
+
     @cached_property
     def pub_local(self) -> rclpy.node.Publisher:
         return self.create_publisher(PositionTarget, ("setpoint_raw", "local"), QOS)
@@ -104,6 +107,7 @@ class SetpointRawPlugin(PluginModule):
 
 
 class SetpointTrajectoryPlugin(PluginModule):
+
     @cached_property
     def pub_local(self) -> rclpy.node.Publisher:
         return self.create_publisher(
@@ -123,6 +127,7 @@ class SetpointTrajectoryPlugin(PluginModule):
 
 
 class SetpointVelocityPlugin(PluginModule):
+
     @cached_property
     def pub_cmd_vel(self) -> rclpy.node.Publisher:
         return self.create_publisher(
