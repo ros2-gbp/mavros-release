@@ -12,13 +12,12 @@ import datetime
 import typing
 
 import rclpy
+from mavros_msgs.msg import ParamEvent
+from mavros_msgs.srv import ParamPull, ParamSetV2
 from rcl_interfaces.msg import Parameter as ParameterMsg
 from rcl_interfaces.msg import ParameterValue
 from rcl_interfaces.srv import GetParameters, ListParameters, SetParameters
 from rclpy.parameter import Parameter
-
-from mavros_msgs.msg import ParamEvent
-from mavros_msgs.srv import ParamPull, ParamSetV2
 
 from .base import PARAMETERS_QOS, PluginModule, SubscriptionCallable, cached_property
 from .utils import (
@@ -55,9 +54,10 @@ class MavProxyParam(ParamFile):
         skipinitialspace = True
         lineterminator = "\r\n"
         quoting = csv.QUOTE_NONE
-        escapechar = ""
+        escapechar = None
 
     def _parse_param_file(self, file_: typing.TextIO):
+
         def to_numeric(x):
             return float(x) if "." in x else int(x)
 
@@ -95,7 +95,7 @@ class MissionPlannerParam(MavProxyParam):
         skipinitialspace = True
         lineterminator = "\r\n"
         quoting = csv.QUOTE_NONE
-        escapechar = ""
+        escapechar = None
 
 
 class QGroundControlParam(ParamFile):
@@ -107,9 +107,10 @@ class QGroundControlParam(ParamFile):
         skipinitialspace = True
         lineterminator = "\n"
         quoting = csv.QUOTE_NONE
-        escapechar = ""
+        escapechar = None
 
     def _parse_param_file(self, file_: typing.TextIO):
+
         def to_numeric(x):
             return float(x) if "." in x else int(x)
 
@@ -127,6 +128,7 @@ class QGroundControlParam(ParamFile):
         return self
 
     def save(self, file_: typing.TextIO):
+
         def to_type(x):
             if isinstance(x, float):
                 return 9  # REAL32
