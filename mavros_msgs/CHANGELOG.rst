@@ -2,6 +2,9 @@
 Changelog for package mavros_msgs
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+2.9.0 (2024-10-10)
+------------------
+
 2.8.0 (2024-06-07)
 ------------------
 * regenerate all using cogall.sh
