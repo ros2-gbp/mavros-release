@@ -14,7 +14,7 @@ import typing
 from dataclasses import dataclass, field, fields
 from functools import cached_property
 
-import rclpy  # noqa F401
+import rclpy
 import rclpy.node
 import rclpy.qos
 
@@ -121,6 +121,7 @@ class BaseNode(rclpy.node.Node):
         return "/".join((self._ns,) + args)
 
     def start_spinner(self) -> threading.Thread:
+
         def run():
             lg = self.get_logger()
             while rclpy.ok():
