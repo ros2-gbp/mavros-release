@@ -1,0 +1,12 @@
+Source: ros-kilted-mavros-extras
+Section: misc
+Priority: optional
+Maintainer: Vladimir Ermakov <vooon341@gmail.com>
+Build-Depends: debhelper (>= 9.0.0), geographiclib-tools, google-mock <!nocheck>, libeigen3-dev, libgeographiclib-dev, libgtest-dev <!nocheck>, libyaml-cpp-dev, ros-kilted-ament-cmake, ros-kilted-ament-cmake-gmock <!nocheck>, ros-kilted-ament-cmake-gtest <!nocheck>, ros-kilted-ament-cmake-python, ros-kilted-ament-lint-auto <!nocheck>, ros-kilted-ament-lint-common <!nocheck>, ros-kilted-angles, ros-kilted-diagnostic-msgs, ros-kilted-diagnostic-updater, ros-kilted-eigen-stl-containers, ros-kilted-eigen3-cmake-module, ros-kilted-geographic-msgs, ros-kilted-geometry-msgs, ros-kilted-libmavconn, ros-kilted-mavlink, ros-kilted-mavros, ros-kilted-mavros-msgs, ros-kilted-message-filters, ros-kilted-nav-msgs, ros-kilted-pluginlib, ros-kilted-rclcpp, ros-kilted-rclcpp-components, ros-kilted-rcpputils, ros-kilted-sensor-msgs, ros-kilted-std-msgs, ros-kilted-std-srvs, ros-kilted-tf2-eigen, ros-kilted-tf2-ros, ros-kilted-trajectory-msgs, ros-kilted-urdf, ros-kilted-visualization-msgs, ros-kilted-yaml-cpp-vendor, ros-kilted-ros-workspace
+Homepage: http://wiki.ros.org/mavros_extras
+Standards-Version: 3.9.2
+
+Package: ros-kilted-mavros-extras
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, geographiclib-tools, libeigen3-dev, libgeographiclib-dev, libyaml-cpp-dev, ros-kilted-diagnostic-msgs, ros-kilted-diagnostic-updater, ros-kilted-eigen-stl-containers, ros-kilted-eigen3-cmake-module, ros-kilted-geographic-msgs, ros-kilted-geometry-msgs, ros-kilted-libmavconn, ros-kilted-mavlink, ros-kilted-mavros, ros-kilted-mavros-msgs, ros-kilted-message-filters, ros-kilted-nav-msgs, ros-kilted-pluginlib, ros-kilted-rclcpp, ros-kilted-rclcpp-components, ros-kilted-rcpputils, ros-kilted-rosidl-default-runtime, ros-kilted-sensor-msgs, ros-kilted-std-msgs, ros-kilted-std-srvs, ros-kilted-tf2-eigen, ros-kilted-tf2-ros, ros-kilted-trajectory-msgs, ros-kilted-urdf, ros-kilted-visualization-msgs, ros-kilted-yaml-cpp-vendor, ros-kilted-ros-workspace
+Description: Extra nodes and plugins for MAVROS.
