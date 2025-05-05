@@ -165,6 +165,12 @@ The twist is expressed in the child frame.
 Publishes the status of the onboard computer
 @see status_cb()</description>
   </class>
+  <class name="open_drone_id" type="mavros::plugin::PluginFactoryTemplate&lt;mavros::extra_plugins::OpenDroneIDPlugin&gt;" base_class_type="mavros::plugin::PluginFactory">
+    <description>@brief Open Drone ID plugin
+@plugin open_drone_id
+
+Sends Open Drone ID data to the FCU</description>
+  </class>
   <class name="optical_flow" type="mavros::plugin::PluginFactoryTemplate&lt;mavros::extra_plugins::OpticalFlowPlugin&gt;" base_class_type="mavros::plugin::PluginFactory">
     <description>@brief Optical Flow custom plugin
 @plugin optical_flow
@@ -240,4 +246,4 @@ This plugin allows computing and publishing wheel odometry coming from FCU wheel
 Can use either wheel's RPM or WHEEL_DISTANCE messages (the latter gives better accuracy).</description>
   </class>
 </library>
-<!-- [[[end]]] (checksum: b45714611896c0f7cf634dc7aaf2cbd6) -->
+<!-- [[[end]]] (checksum: 03a498e746e958da9480aa6411d57a1f) -->
