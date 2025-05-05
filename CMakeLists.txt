@@ -117,6 +117,7 @@ add_library(mavros_extras_plugins SHARED
   src/plugins/obstacle_distance.cpp
   src/plugins/odom.cpp
   src/plugins/onboard_computer_status.cpp
+  src/plugins/open_drone_id.cpp
   src/plugins/optical_flow.cpp
   src/plugins/play_tune.cpp
   src/plugins/px4flow.cpp
@@ -129,7 +130,7 @@ add_library(mavros_extras_plugins SHARED
   src/plugins/vision_pose_estimate.cpp
   src/plugins/vision_speed_estimate.cpp
   src/plugins/wheel_odometry.cpp
-  # [[[end]]] (checksum: 1f8cd51fa90b89b27ee35d276b5f8c83)
+  # [[[end]]] (checksum: 4564d922cfa3d36bf2089dade2323259)
 )
 ament_target_dependencies(mavros_extras_plugins
   angles
