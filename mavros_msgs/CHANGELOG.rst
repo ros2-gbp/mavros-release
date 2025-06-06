@@ -2,6 +2,9 @@
 Changelog for package mavros_msgs
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+2.10.1 (2025-06-06)
+-------------------
+
 2.10.0 (2025-05-05)
 -------------------
 * extras: re-generate all cog scripts
