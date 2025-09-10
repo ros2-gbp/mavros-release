@@ -3,7 +3,7 @@ project(mavros_extras)
 
 # Default to C++20
 if(NOT CMAKE_CXX_STANDARD)
-  set(CMAKE_CXX_STANDARD 17)
+  set(CMAKE_CXX_STANDARD 20)
   #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++2a")
 endif()
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
@@ -32,7 +32,6 @@ find_package(libmavconn REQUIRED)
 
 find_package(eigen3_cmake_module REQUIRED)
 find_package(Eigen3 REQUIRED)
-find_package(yaml_cpp_vendor REQUIRED)
 
 ## Find GeographicLib
 # Append to CMAKE_MODULE_PATH since debian/ubuntu installs
@@ -68,6 +67,8 @@ include_directories(
   ${mavlink_INCLUDE_DIRS}
   ${EIGEN3_INCLUDE_DIRS}
   ${GeographicLib_INCLUDE_DIRS}
+  ${libmavconn_INCLUDE_DIRS}
+  ${mavros_INCLUDE_DIRS}
 )
 
 if(rclcpp_VERSION VERSION_LESS 9.0.0)
@@ -80,13 +81,21 @@ if(rclcpp_VERSION VERSION_LESS 17.0.0)
   # Humble and older
   add_definitions(
     -DUSE_OLD_RMW_QOS
+    -DUSE_OLD_TF2_ROS
+  )
+endif()
+
+if(message_filters_VERSION VERSION_LESS 5.0.0)
+  # Jazzy and older
+  add_definitions(
+    -DUSE_OLD_RMW_QOS_MESSAGE_FILTERS
   )
 endif()
 
 # [[[cog:
 # import mavros_cog
 # ]]]
-# [[[end]]] (checksum: d41d8cd98f00b204e9800998ecf8427e)
+# [[[end]]] (sum: 1B2M2Y8Asg)
 
 add_library(mavros_extras_plugins SHARED
   # [[[cog:
@@ -130,30 +139,31 @@ add_library(mavros_extras_plugins SHARED
   src/plugins/vision_pose_estimate.cpp
   src/plugins/vision_speed_estimate.cpp
   src/plugins/wheel_odometry.cpp
-  # [[[end]]] (checksum: 4564d922cfa3d36bf2089dade2323259)
+  # [[[end]]] (sum: RWTZIs+j02)
 )
-ament_target_dependencies(mavros_extras_plugins
-  angles
-  geometry_msgs
-  geographic_msgs
-  mavros
-  mavros_msgs
-  std_msgs
-  std_srvs
-  sensor_msgs
-  pluginlib
-  nav_msgs
-  trajectory_msgs
-  rclcpp
-  rclcpp_components
-  rcpputils
-  libmavconn
-  diagnostic_updater
-  tf2_ros
-  tf2_eigen
-  message_filters
-  Eigen3
-  yaml_cpp_vendor
+target_link_libraries(mavros_extras_plugins PUBLIC
+  ${geographic_msgs_TARGETS}
+  ${geometry_msgs_TARGETS}
+  ${mavros_msgs_TARGETS}
+  ${nav_msgs_TARGETS}
+  ${sensor_msgs_TARGETS}
+  ${std_msgs_TARGETS}
+  ${std_srvs_TARGETS}
+  ${trajectory_msgs_TARGETS}
+  angles::angles
+  diagnostic_updater::diagnostic_updater
+  geographic_msgs::validation
+  message_filters::message_filters
+  pluginlib::pluginlib
+  rclcpp::rclcpp
+  rclcpp_components::component
+  rclcpp_components::component_manager
+  rcpputils::rcpputils
+  sensor_msgs::sensor_msgs_library
+  tf2_eigen::tf2_eigen
+  tf2_ros::static_transform_broadcaster_node
+  tf2_ros::tf2_ros
+  ${mavros_LIBRARIES}
 )
 pluginlib_export_plugin_description_file(mavros mavros_plugins.xml)
 
@@ -162,25 +172,28 @@ add_library(mavros_extras SHARED
   # mavros_cog.outl_glob_files('src/lib')
   # ]]]
   src/lib/servo_state_publisher.cpp
-  # [[[end]]] (checksum: a3ce43c71c567f697861bcbcd0f25aa3)
+  # [[[end]]] (sum: o85DxxxWf2)
 )
-ament_target_dependencies(mavros_extras
-  rclcpp
-  rclcpp_components
-  std_msgs
-  sensor_msgs
-  mavros_msgs
-  #console_bridge
-  yaml_cpp_vendor
-  urdf
+target_link_libraries(mavros_extras PUBLIC
+  ${mavros_msgs_TARGETS}
+  ${sensor_msgs_TARGETS}
+  ${std_msgs_TARGETS}
+  rclcpp::rclcpp
+  rclcpp_components::component
+  rclcpp_components::component_manager
+  sensor_msgs::sensor_msgs_library
+  urdf::urdf
+  ${mavros_LIBRARIES}
 )
 rclcpp_components_register_node(mavros_extras PLUGIN "mavros::extras::ServoStatePublisher" EXECUTABLE servo_state_publisher)
 
 # yaml-cpp is required for Jazzy and newer
 if(rclcpp_VERSION VERSION_GREATER_EQUAL 22.0.0)
   find_package(yaml-cpp REQUIRED)
-  target_link_libraries(mavros_extras_plugins yaml-cpp::yaml-cpp)
-  target_link_libraries(mavros_extras yaml-cpp::yaml-cpp)
+  target_link_libraries(mavros_extras_plugins PUBLIC yaml-cpp::yaml-cpp)
+  target_link_libraries(mavros_extras PUBLIC yaml-cpp::yaml-cpp)
+else()
+  find_package(yaml_cpp_vendor REQUIRED)
 endif()
 
 install(TARGETS mavros_extras mavros_extras_plugins
@@ -206,6 +219,11 @@ if(BUILD_TESTING)
 
   # NOTE(vooon): Does not support our custom triple-license, tiered to make it to work.
   list(APPEND AMENT_LINT_AUTO_EXCLUDE ament_cmake_copyright)
+
+  # Old releases has different uncrustify config, disable for < Jazzy
+  if(rclcpp_VERSION VERSION_LESS 22.0.0)
+    list(APPEND AMENT_LINT_AUTO_EXCLUDE ament_cmake_uncrustify)
+  endif()
 
   ament_lint_auto_find_test_dependencies()
 endif()
