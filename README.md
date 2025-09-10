@@ -1,3 +1,30 @@
+## mavros (kilted) - 2.11.0-1
+
+The packages in the `mavros` repository were released into the `kilted` distro by running `/usr/bin/bloom-release mavros -r kilted` on `Wed, 10 Sep 2025 11:09:27 -0000`
+
+These packages were released:
+- `libmavconn`
+- `mavros`
+- `mavros_extras`
+- `mavros_msgs`
+
+Version of package(s) in repository `mavros`:
+
+- upstream repository: https://github.com/mavlink/mavros.git
+- release repository: https://github.com/ros2-gbp/mavros-release.git
+- rosdistro version: `2.10.1-1`
+- old version: `2.10.1-1`
+- new version: `2.11.0-1`
+
+Versions of tools used:
+
+- bloom version: `0.13.0`
+- catkin_pkg version: `1.0.0`
+- rosdep version: `0.26.0`
+- rosdistro version: `1.0.1`
+- vcstools version: `0.1.42`
+
+
 ## mavros (jazzy) - 2.11.0-1
 
 The packages in the `mavros` repository were released into the `jazzy` distro by running `/usr/bin/bloom-release mavros -r jazzy` on `Wed, 10 Sep 2025 11:04:41 -0000`
