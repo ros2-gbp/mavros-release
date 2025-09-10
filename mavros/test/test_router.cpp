@@ -1,4 +1,3 @@
-//
 // mavros
 // Copyright 2021 Vladimir Ermakov, All rights reserved.
 //
@@ -90,6 +89,7 @@ public:
   Router::SharedPtr create_node()
   {
     auto router = std::make_shared<Router>("test_mavros_router");
+    router->startup_delay_timer->cancel();
 
     auto make_and_add_mock_endpoint =
       [router](id_t id, const std::string & url, LT type,
@@ -116,6 +116,17 @@ public:
     make_and_add_mock_endpoint(1003, "/uas2", LT::uas, {0x0000, 0x0200, 0x02BF});
     make_and_add_mock_endpoint(1004, "mock://gcs1", LT::gcs, {0x0000, 0xFF00, 0xFFBE});
     make_and_add_mock_endpoint(1005, "mock://gcs2", LT::gcs, {0x0000, 0xFF00, 0xFFBD});
+
+    return router;
+  }
+
+  Router::SharedPtr create_node_no_endpoints()
+  {
+    auto router = std::make_shared<Router>("test_mavros_router");
+    router->startup_delay_timer->cancel();
+
+    // Call this manually
+    router->param_init_once();
 
     return router;
   }
@@ -184,7 +195,7 @@ public:
 
 TEST_F(TestRouter, set_parameter)
 {
-  auto router = std::make_shared<Router>("test_mavros_router");
+  auto router = this->create_node_no_endpoints();
 
   router->set_parameters(
     std::vector<rclcpp::Parameter>{
@@ -388,7 +399,7 @@ TEST_F(TestRouter, route_targeted_system_component)
 
 TEST_F(TestRouter, endpoint_recv_message)
 {
-  auto router = std::make_shared<Router>("test_mavros_router");
+  auto router = create_node_no_endpoints();
 
   router->set_parameters(
     std::vector<rclcpp::Parameter>{
