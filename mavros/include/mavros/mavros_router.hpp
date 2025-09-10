@@ -151,8 +151,6 @@ public:
   {
     RCLCPP_DEBUG(this->get_logger(), "Start mavros::router::Router initialization...");
 
-    set_parameters_handle_ptr =
-      this->add_on_set_parameters_callback(std::bind(&Router::on_set_parameters_cb, this, _1));
     this->declare_parameter<StrV>("fcu_urls", StrV());
     this->declare_parameter<StrV>("gcs_urls", StrV());
     this->declare_parameter<StrV>("uas_urls", StrV());
@@ -184,6 +182,14 @@ public:
     RCLCPP_INFO(get_logger(), "Built-in MAVLink package version: %s", mavlink::version);
     RCLCPP_INFO(get_logger(), "Known MAVLink dialects:%s", ss.str().c_str());
     RCLCPP_INFO(get_logger(), "MAVROS Router started");
+
+    // Delay parameter callback initialization because
+    // add/del endpoints calls have to use shared_from_this(),
+    // which cannot be used before we leave the constructor.
+    startup_delay_timer = this->create_wall_timer(10ms, [this]() {
+          this->startup_delay_timer->cancel();
+          this->param_init_once();
+    });
   }
 
   void route_message(Endpoint::SharedPtr src, const mavlink_message_t * msg, const Framing framing);
@@ -208,6 +214,7 @@ private:
   rclcpp::TimerBase::SharedPtr reconnect_timer;
   rclcpp::TimerBase::SharedPtr stale_addrs_timer;
   rclcpp::Node::OnSetParametersCallbackHandle::SharedPtr set_parameters_handle_ptr;
+  rclcpp::TimerBase::SharedPtr startup_delay_timer;
   diagnostic_updater::Updater diagnostic_updater;
 
   void add_endpoint(
@@ -219,6 +226,21 @@ private:
 
   void periodic_reconnect_endpoints();
   void periodic_clear_stale_remote_addrs();
+
+  std::once_flag param_init_flag;
+  void param_init()
+  {
+    set_parameters_handle_ptr =
+      this->add_on_set_parameters_callback(std::bind(&Router::on_set_parameters_cb, this, _1));
+
+    auto params = get_parameters({"fcu_urls", "gcs_urls", "uas_urls"});
+    on_set_parameters_cb(params);
+  }
+
+  void param_init_once()
+  {
+    std::call_once(param_init_flag, std::bind(&Router::param_init, this));
+  }
 
   rcl_interfaces::msg::SetParametersResult on_set_parameters_cb(
     const std::vector<rclcpp::Parameter> & parameters);
