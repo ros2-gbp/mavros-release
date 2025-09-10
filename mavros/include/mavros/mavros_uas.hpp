@@ -20,10 +20,17 @@
 #ifndef MAVROS__MAVROS_UAS_HPP_
 #define MAVROS__MAVROS_UAS_HPP_
 
-#include <tf2_ros/buffer.h>                         // NOLINT
-#include <tf2_ros/transform_listener.h>             // NOLINT
-#include <tf2_ros/transform_broadcaster.h>          // NOLINT
-#include <tf2_ros/static_transform_broadcaster.h>   // NOLINT
+#ifdef USE_OLD_TF2_ROS
+# include <tf2_ros/buffer.h>                         // NOLINT
+# include <tf2_ros/transform_listener.h>             // NOLINT
+# include <tf2_ros/transform_broadcaster.h>          // NOLINT
+# include <tf2_ros/static_transform_broadcaster.h>   // NOLINT
+#else
+# include <tf2_ros/buffer.hpp>                         // NOLINT
+# include <tf2_ros/transform_listener.hpp>             // NOLINT
+# include <tf2_ros/transform_broadcaster.hpp>          // NOLINT
+# include <tf2_ros/static_transform_broadcaster.hpp>   // NOLINT
+#endif
 
 #include <array>
 #include <atomic>
@@ -62,7 +69,7 @@ using MAV_TYPE = mavlink::minimal::MAV_TYPE;
 using MAV_AUTOPILOT = mavlink::minimal::MAV_AUTOPILOT;
 using MAV_MODE_FLAG = mavlink::minimal::MAV_MODE_FLAG;
 using MAV_STATE = mavlink::minimal::MAV_STATE;
-using MAV_CAP = mavlink::common::MAV_PROTOCOL_CAPABILITY;
+using MAV_CAP = mavlink::standard::MAV_PROTOCOL_CAPABILITY;
 using timesync_mode = utils::timesync_mode;
 
 
