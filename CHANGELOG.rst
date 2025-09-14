@@ -2,6 +2,9 @@
 Changelog for package libmavconn
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+2.12.0 (2025-09-14)
+-------------------
+
 2.11.0 (2025-09-10)
 -------------------
 * cmake: disable uncrustify for humble
