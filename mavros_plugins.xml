@@ -81,7 +81,7 @@ Also publishes gimbal pose to TF when parameter tf_send==true</description>
     <description>@brief GPS_INPUT GPS plugin.
 @plugin gps_input
 
-Sends &lt;a href="https://mavlink.io/en/messages/common.html#GPS_INPUT"&gt;GPS_INPUT MAVLink messages&lt;/a&gt;</description>
+Sends &lt;a href=&quot;https://mavlink.io/en/messages/common.html#GPS_INPUT&quot;&gt;GPS_INPUT MAVLink messages&lt;/a&gt;</description>
   </class>
   <class name="gps_rtk" type="mavros::plugin::PluginFactoryTemplate&lt;mavros::extra_plugins::GpsRtkPlugin&gt;" base_class_type="mavros::plugin::PluginFactory">
     <description>@brief GPS RTK plugin
@@ -121,7 +121,7 @@ to the FCU and/or receive landing target tracking data coming from the FCU.</des
     <description>@brief MagCalStatus plugin.
 @plugin mag_calibration_status
 
-Example and "how to" for users.</description>
+Example and &quot;how to&quot; for users.</description>
   </class>
   <class name="mocap_pose_estimate" type="mavros::plugin::PluginFactoryTemplate&lt;mavros::extra_plugins::MocapPoseEstimatePlugin&gt;" base_class_type="mavros::plugin::PluginFactory">
     <description>@brief MocapPoseEstimate plugin
@@ -143,6 +143,13 @@ Publishes Mission commands to control the camera or antenna mount.
 Publishes obstacle distance array to the FCU, in order to assist in an obstacle
 avoidance flight.
 @see obstacle_cb()</description>
+  </class>
+  <class name="obstacle_distance_3d" type="mavros::plugin::PluginFactoryTemplate&lt;mavros::extra_plugins::ObstacleDistance3DPlugin&gt;" base_class_type="mavros::plugin::PluginFactory">
+    <description>@brief Plugin to handle sending OBSTACLE_DISTANCE_3D MAVLink messages.
+@plugin obstacle_distance_3d
+
+Subscribes to a mavros_msgs/ObstacleDistance3D message and sends the
+data to the flight controller to report the position of a single obstacle.</description>
   </class>
   <class name="odometry" type="mavros::plugin::PluginFactoryTemplate&lt;mavros::extra_plugins::OdometryPlugin&gt;" base_class_type="mavros::plugin::PluginFactory">
     <description>@brief Odometry plugin
@@ -192,6 +199,10 @@ This plugin can publish data from PX4Flow camera to ROS</description>
 @plugin rangefinder
 
 This plugin allows publishing rangefinder sensor data from Ardupilot FCU to ROS.</description>
+  </class>
+  <class name="sim_state" type="mavros::plugin::PluginFactoryTemplate&lt;mavros::extra_plugins::SimStatePlugin&gt;" base_class_type="mavros::plugin::PluginFactory">
+    <description>@brief SIM_STATE plugin.
+@plugin sim_state</description>
   </class>
   <class name="tdr_radio" type="mavros::plugin::PluginFactoryTemplate&lt;mavros::extra_plugins::TDRRadioPlugin&gt;" base_class_type="mavros::plugin::PluginFactory">
     <description>@brief 3DR Radio plugin.
@@ -246,4 +257,4 @@ This plugin allows computing and publishing wheel odometry coming from FCU wheel
 Can use either wheel's RPM or WHEEL_DISTANCE messages (the latter gives better accuracy).</description>
   </class>
 </library>
-<!-- [[[end]]] (sum: XzQHfXbCHY) -->
+<!-- [[[end]]] (sum: f6VdFSCNBV) -->
