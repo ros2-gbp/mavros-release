@@ -2,6 +2,29 @@
 Changelog for package mavros_extras
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+2.13.0 (2025-12-12)
+-------------------
+* extras landing_target: fix `#2080 <https://github.com/mavlink/mavros/issues/2080>`_ fov vector init
+* update packages to format 3
+* added brief documentation
+* whitespace lint check
+* char count p line change
+* added support for SIM_STATE message
+* Fixing TF timestamps to use system time in landing_target plugin
+* extras: fix cpplint by dropping unneded comment
+* regenerate all with cogall.sh, apply ament_uncrustify
+* fixes `#2070 <https://github.com/mavlink/mavros/issues/2070>`_: adding support for OBSTACLE_DISTANCE_3D message (`#2071 <https://github.com/mavlink/mavros/issues/2071>`_)
+  * feat: add Obstacle Distance 3D plugin
+  - Introduced a new plugin `obstacle_distance_3d` to handle 3D obstacle distance data.
+  - Subscribes to a custom ROS 2 message `Obstacle3D` and sends corresponding MAVLink messages.
+  - Updated CMakeLists.txt and package.xml to include dependencies for the new plugin.
+  * add native message support
+  * clean up changes
+  * removed redundant time param in the message, and changed default logging to debug
+  ---------
+  Co-authored-by: zekesarosi <zsarosi@flyseneca.com>
+* Contributors: Gus Meyer, Vladimir Ermakov, Zeke Sarosi, zekesarosi
+
 2.12.0 (2025-09-14)
 -------------------
 * cmake: explicit link diagnostic_msgs
