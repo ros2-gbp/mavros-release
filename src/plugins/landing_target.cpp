@@ -315,7 +315,7 @@ private:
 
     Eigen::Vector2f angle;
     Eigen::Vector2f size_rad;
-    Eigen::Vector2f fov;
+    Eigen::Vector2f fov(fov_x, fov_y);
 
     // the norm of the position vector is considered the distance to the landing target
     float distance = pos.norm();
@@ -436,8 +436,8 @@ private:
   void transform_cb(const geometry_msgs::msg::TransformStamped & transform)
   {
     Eigen::Affine3d tr = tf2::transformToEigen(transform.transform);
-
-    send_landing_target(transform.header.stamp, tr);
+    rclcpp::Time sys_time(transform.header.stamp, RCL_SYSTEM_TIME);
+    send_landing_target(sys_time, tr);
   }
 
   /**
