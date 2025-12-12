@@ -786,9 +786,8 @@ private:
       case enum_value(MAV_SEVERITY::ALERT):
       case enum_value(MAV_SEVERITY::CRITICAL):
       case enum_value(MAV_SEVERITY::ERROR):
-        RCLCPP_ERROR_STREAM(
-          node->get_logger(),
-          "FCU: EVENT " << px4_id << " with args " << arg_str);
+        RCLCPP_ERROR_STREAM(node->get_logger(),
+            "FCU: EVENT " << px4_id << " with args " << arg_str);
         break;
       case enum_value(MAV_SEVERITY::WARNING):
       case enum_value(MAV_SEVERITY::NOTICE):
@@ -798,9 +797,8 @@ private:
         RCLCPP_INFO_STREAM(node->get_logger(), "FCU: EVENT " << px4_id << " with args " << arg_str);
         break;
       case enum_value(MAV_SEVERITY::DEBUG):
-        RCLCPP_DEBUG_STREAM(
-          node->get_logger(),
-          "FCU: EVENT " << px4_id << " with args " << arg_str);
+        RCLCPP_DEBUG_STREAM(node->get_logger(),
+            "FCU: EVENT " << px4_id << " with args " << arg_str);
         break;
       // [[[end]]] (sum: g/XqtqiYn5)
       default:
