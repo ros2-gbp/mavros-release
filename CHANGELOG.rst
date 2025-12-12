@@ -2,6 +2,17 @@
 Changelog for package mavros
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+2.13.0 (2025-12-12)
+-------------------
+* Uncrustify
+* Fix overflow in uas_timesync.cpp synchronise_stamp
+* Add test for synchronise_stamp overflow
+* examples: fix doc strings, add types
+* update packages to format 3
+* docs: update installation guide
+* regenerate all with cogall.sh, apply ament_uncrustify
+* Contributors: Paul Erik Frivold, Vladimir Ermakov
+
 2.12.0 (2025-09-14)
 -------------------
 * launch: fix python format lint
