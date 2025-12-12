@@ -1,0 +1,17 @@
+ros-rolling-mavros-examples (2.13.0-1noble) noble; urgency=high
+
+  * examples: disable copyright check
+  * examples: add copyright headers
+  * examples: fix package.xml lint
+  * examples: fix doc strings, add types
+  * examples: isort + ruff format
+  * examples: add sample setup.py
+  * update packages to format 3
+  * modifying package.xml file.
+  * setting mavros_examples for draft pr
+  * adding mavros_examples
+  * Contributors: Haroon Rasheed, Vladimir Ermakov, haroon
+
+ -- Haroon Rasheed <haroon300@hotmail.com>  Fri, 12 Dec 2025 00:00:00 -0000
+
+
