@@ -75,6 +75,7 @@ set(msg_files
   msg/Mavlink.msg
   msg/MountControl.msg
   msg/NavControllerOutput.msg
+  msg/ObstacleDistance3D.msg
   msg/OnboardComputerStatus.msg
   msg/OpenDroneIDBasicID.msg
   msg/OpenDroneIDOperatorID.msg
@@ -110,7 +111,7 @@ set(msg_files
   msg/WaypointList.msg
   msg/WaypointReached.msg
   msg/WheelOdomStamped.msg
-  # [[[end]]] (sum: bFKUHBtdCu)
+  # [[[end]]] (sum: 4tpSf/CPJJ)
 )
 
 set(srv_files
