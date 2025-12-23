@@ -1,0 +1,12 @@
+Source: ros-kilted-mavros-examples
+Section: misc
+Priority: optional
+Maintainer: Haroon Rasheed <haroon300@hotmail.com>
+Build-Depends: debhelper (>= 9.0.0), ros-kilted-ament-cmake, ros-kilted-ament-cmake-python, ros-kilted-ament-lint-auto <!nocheck>, ros-kilted-ament-lint-common <!nocheck>, ros-kilted-eigen3-cmake-module, ros-kilted-geometry-msgs, ros-kilted-mavros, ros-kilted-mavros-msgs, ros-kilted-rclpy, ros-kilted-sensor-msgs, ros-kilted-std-msgs, ros-kilted-std-srvs, ros-kilted-trajectory-msgs, ros-kilted-ros-workspace
+Homepage: http://wiki.ros.org/mavros
+Standards-Version: 3.9.2
+
+Package: ros-kilted-mavros-examples
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, ros-kilted-eigen3-cmake-module, ros-kilted-geometry-msgs, ros-kilted-mavros, ros-kilted-mavros-msgs, ros-kilted-rclpy, ros-kilted-sensor-msgs, ros-kilted-std-msgs, ros-kilted-std-srvs, ros-kilted-trajectory-msgs, ros-kilted-ros-workspace
+Description: Example scripts demonstrating MAVROS usage
