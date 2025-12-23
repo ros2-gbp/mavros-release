@@ -2,6 +2,11 @@
 Changelog for package mavros
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+2.14.0 (2025-12-23)
+-------------------
+* fix: update GLOBAL_POSITION_INT message type to standard namespace
+* Contributors: Davide Iafrate
+
 2.13.0 (2025-12-12)
 -------------------
 * Uncrustify
