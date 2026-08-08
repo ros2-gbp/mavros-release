@@ -28,6 +28,7 @@
 
 #include <asio.hpp>
 #include <mavconn/interface.hpp>
+#include <mavconn/io_context_runner.hpp>
 #include <mavconn/msgbuffer.hpp>
 
 namespace mavconn
@@ -49,18 +50,21 @@ public:
    * Create generic TCP client (connect to the server)
    * @param[id] server_addr    remote host
    * @param[id] server_port    remote port
+   * @param[id] shared_io      optional external io_context. If provided, caller owns
+   *                           its execution/threading lifecycle.
    */
   MAVConnTCPClient(
     uint8_t system_id = 1, uint8_t component_id = MAV_COMP_ID_UDP_BRIDGE,
     std::string server_host = DEFAULT_SERVER_HOST,
-    uint16_t server_port = DEFAULT_SERVER_PORT);
+    uint16_t server_port = DEFAULT_SERVER_PORT,
+    asio::io_context * shared_io = nullptr);
 
   /**
    * Special client variation for use in MAVConnTCPServer
    */
   explicit MAVConnTCPClient(
     uint8_t system_id, uint8_t component_id,
-    asio::io_service & server_io);
+    asio::io_context & server_io);
 
   virtual ~MAVConnTCPClient();
 
@@ -73,17 +77,15 @@ public:
   void send_message(const mavlink::Message & message, const uint8_t source_compid) override;
   void send_bytes(const uint8_t * bytes, size_t length) override;
 
-  inline bool is_open() override
+  [[nodiscard]] inline bool is_open() override
   {
     return socket.is_open();
   }
 
 private:
   friend class MAVConnTCPServer;
-  asio::io_service io_service;
-  std::unique_ptr<asio::io_service::work> io_work;
-  std::thread io_thread;
-  std::atomic<bool> is_running;  //!< io_thread running
+  IoContextRunner io_runner;
+  asio::io_context & io_context;
 
   asio::ip::tcp::socket socket;
   asio::ip::tcp::endpoint server_ep;
@@ -93,7 +95,7 @@ private:
   std::atomic<bool> tx_in_progress;
   std::deque<MsgBuffer> tx_q;
   std::array<uint8_t, MsgBuffer::MAX_SIZE> rx_buf;
-  std::recursive_mutex mutex;
+  std::mutex mutex;
 
   /**
    * This special function called by TCP server when connection accepted.
@@ -104,7 +106,7 @@ private:
   void do_send(bool check_tx_state);
 
   /**
-   * Stop io_service.
+   * Stop io_context.
    */
   void stop();
 };
@@ -124,10 +126,13 @@ public:
   /**
    * @param[id] server_addr    bind host
    * @param[id] server_port    bind port
+   * @param[id] shared_io      optional external io_context. If provided, caller owns
+   *                           its execution/threading lifecycle.
    */
   MAVConnTCPServer(
     uint8_t system_id = 1, uint8_t component_id = MAV_COMP_ID_UDP_BRIDGE,
-    std::string bind_host = DEFAULT_BIND_HOST, uint16_t bind_port = DEFAULT_BIND_PORT);
+    std::string bind_host = DEFAULT_BIND_HOST, uint16_t bind_port = DEFAULT_BIND_PORT,
+    asio::io_context * shared_io = nullptr);
   virtual ~MAVConnTCPServer();
 
   void connect(
@@ -141,15 +146,14 @@ public:
 
   mavlink::mavlink_status_t get_status() override;
   IOStat get_iostat() override;
-  inline bool is_open() override
+  [[nodiscard]] inline bool is_open() override
   {
     return acceptor.is_open();
   }
 
 private:
-  asio::io_service io_service;
-  std::unique_ptr<asio::io_service::work> io_work;
-  std::thread io_thread;
+  IoContextRunner io_runner;
+  asio::io_context & io_context;
 
   asio::ip::tcp::acceptor acceptor;
   asio::ip::tcp::endpoint bind_ep;
@@ -157,7 +161,7 @@ private:
   std::atomic<bool> is_destroying;
 
   std::list<std::shared_ptr<MAVConnTCPClient>> client_list;
-  std::recursive_mutex mutex;
+  std::mutex mutex;
 
   void do_accept();
 
