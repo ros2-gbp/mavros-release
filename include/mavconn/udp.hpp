@@ -26,6 +26,7 @@
 
 #include <asio.hpp>
 #include <mavconn/interface.hpp>
+#include <mavconn/io_context_runner.hpp>
 #include <mavconn/msgbuffer.hpp>
 
 namespace mavconn
@@ -53,12 +54,15 @@ public:
    * @param[id] bind_port    bind port
    * @param[id] remote_host  remote host (optional)
    * @param[id] remote_port  remote port (optional)
+   * @param[id] shared_io    optional external io_context. If provided, caller owns
+   *                         its execution/threading lifecycle.
    */
   MAVConnUDP(
     uint8_t system_id = 1, uint8_t component_id = MAV_COMP_ID_UDP_BRIDGE,
     std::string bind_host = DEFAULT_BIND_HOST, uint16_t bind_port = DEFAULT_BIND_PORT,
     std::string remote_host = DEFAULT_REMOTE_HOST,
-    uint16_t remote_port = DEFAULT_REMOTE_PORT);
+    uint16_t remote_port = DEFAULT_REMOTE_PORT,
+    asio::io_context * shared_io = nullptr);
 
   virtual ~MAVConnUDP();
 
@@ -71,18 +75,16 @@ public:
   void send_message(const mavlink::Message & message, const uint8_t source_compid) override;
   void send_bytes(const uint8_t * bytes, size_t length) override;
 
-  inline bool is_open() override
+  [[nodiscard]] inline bool is_open() override
   {
     return socket.is_open();
   }
 
-  std::string get_remote_endpoint() const;
+  [[nodiscard]] std::string get_remote_endpoint() const;
 
 private:
-  asio::io_service io_service;
-  std::unique_ptr<asio::io_service::work> io_work;
-  std::thread io_thread;
-  std::atomic<bool> is_running;  //!< io_thread running
+  IoContextRunner io_runner;
+  asio::io_context & io_context;
   bool permanent_broadcast;
 
   std::atomic<bool> remote_exists;
@@ -95,13 +97,13 @@ private:
   std::atomic<bool> tx_in_progress;
   std::deque<MsgBuffer> tx_q;
   std::array<uint8_t, MsgBuffer::MAX_SIZE> rx_buf;
-  std::recursive_mutex mutex;
+  std::mutex mutex;
 
   void do_recvfrom();
   void do_sendto(bool check_tx_state);
 
   /**
-   * Stop io_service.
+   * Stop io_context.
    */
   void stop();
 };
