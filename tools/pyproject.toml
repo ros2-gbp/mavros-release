@@ -1,6 +1,6 @@
 [project]
 name = "mavros-tools"
-version = "0.2.0"
+version = "0.2.1"
 description = "Mavros development tools"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -10,10 +10,9 @@ dependencies = [
     "cogapp",
     "attrs",
     "comment-parser",
-
     # docs - `uv tool install` do not have `--group` similar to `uv sync`.
-    "mkdocs",
-    "mkdocs-material",
+    "mkdocs<2",
+    "mkdocs-material>=9",
     "mkdocstrings-python",
     "mkdocs-click",
     "sphinx",
@@ -22,6 +21,9 @@ dependencies = [
     "griffe-fieldz",
     "markdown-include",
     "markdown-exec",
+    # api-gen
+    "loguru",
+    "jinja2",
 ]
 
 [dependency-groups]
@@ -33,8 +35,8 @@ dev = [
     "pytest-cov",
 ]
 docs = [
-    "mkdocs",
-    "mkdocs-material",
+    "mkdocs<2",
+    "mkdocs-material>=9",
     "mkdocstrings-python",
     "mkdocs-click",
     "sphinx",
@@ -48,6 +50,7 @@ docs = [
 [project.scripts]
 mr-cog = "cogapp:main"
 mr-mkdocs = "mkdocs.__main__:cli"
+mr-plugin-doc-gen = "plugin_doc_gen:main"
 
 [tool.hatch.build.targets.sdist]
 include = ["*.py"]

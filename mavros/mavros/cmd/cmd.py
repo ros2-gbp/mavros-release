@@ -224,12 +224,10 @@ def takeoff_cur(ctx, client, min_pitch, yaw, altitude):
 
     def fix_cb(fix: NavSatFix):
         click.echo(
-            f"Taking-off from current coord: "
-            f"Lat: {fix.latitude}, Long: {fix.longitude}"
+            f"Taking-off from current coord: Lat: {fix.latitude}, Long: {fix.longitude}"
         )
         client.verbose_echo(
-            f"With desired Altitude: {altitude}, "
-            f"Yaw: {yaw}, Pitch angle: {min_pitch}"
+            f"With desired Altitude: {altitude}, Yaw: {yaw}, Pitch angle: {min_pitch}"
         )
 
         req = CommandTOL.Request(
@@ -263,7 +261,7 @@ def land_cur(ctx, client, yaw, altitude):
 
     def fix_cb(fix: NavSatFix):
         click.echo(
-            f"Landing on current coord: " f"Lat: {fix.latitude}, Long: {fix.longitude}"
+            f"Landing on current coord: Lat: {fix.latitude}, Long: {fix.longitude}"
         )
         client.verbose_echo(f"With desired Altitude: {altitude}, Yaw: {yaw}")
 
@@ -333,7 +331,7 @@ def trigger_control(ctx, client, trigger_enable, sequence_reset, trigger_pause):
     "--integration-time",
     default=0.0,
     type=float,
-    help="Camera shutter intergration time. Zero to ignore",
+    help="Camera shutter integration time. Zero to ignore",
 )
 @pass_client
 @click.pass_context
