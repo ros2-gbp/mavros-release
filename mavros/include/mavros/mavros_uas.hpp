@@ -148,7 +148,7 @@ public:
   //! Returns EPH, EPV, Fix type and satellites visible
   void get_gps_epts(float & eph, float & epv, int & fix_type, int & satellites_visible);
 
-  //! Retunrs last GPS RAW message
+  //! Returns last GPS RAW message
   sensor_msgs::msg::NavSatFix get_gps_fix();
 
   /* -*- GograpticLib utils -*- */
@@ -237,7 +237,7 @@ private:
  * - Connection status (@a mavplugin::SystemStatusPlugin)
  * - Autopilot type (@a mavplugin::SystemStatusPlugin)
  * - Vehicle type (@a mavplugin::SystemStatusPlugin)
- * - Additional data trough mavros::uas::Data class
+ * - Additional data through mavros::uas::Data class
  */
 class UAS : public rclcpp::Node
 {
@@ -260,7 +260,14 @@ public:
     const std::string & uas_url_ = "/uas1", uint8_t target_system_ = 1,
     uint8_t target_component_ = 1);
 
-  ~UAS() = default;
+  ~UAS() override;
+
+  // UAS is not copyable/movable: it owns an executor thread, TF listeners,
+  // subscriptions and plugin nodes.
+  UAS(const UAS &) = delete;
+  UAS & operator=(const UAS &) = delete;
+  UAS(UAS &&) = delete;
+  UAS & operator=(UAS &&) = delete;
 
   /**
    * @brief Mavros diagnostic updater
@@ -455,7 +462,7 @@ public:
    *
    * @param[in] frame_id    frame for header
    * @param[in] time_stamp  mavlink message time
-   * @return Header with syncronized stamp and frame id
+   * @return Header with synchronized stamp and frame id
    */
   template<typename T>
   inline std_msgs::msg::Header synchronized_header(const std::string & frame_id, const T time_stamp)
@@ -621,9 +628,9 @@ private:
 
   // XXX(vooon): we have to use own executor because Node::create_sub_node() doesn't work for us.
   using thread_ptr = std::unique_ptr<std::thread, std::function<void (std::thread *)>>;
-  thread_ptr exec_spin_thd;
   // rclcpp::executors::MultiThreadedExecutor exec;
   UASExecutor exec;
+  thread_ptr exec_spin_thd;
 
   // plugins
   pluginlib::ClassLoader<plugin::PluginFactory> plugin_factory_loader;
