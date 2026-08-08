@@ -38,7 +38,8 @@ using mavlink::common::MAV_FRAME;
  * @brief Setpoint position plugin
  * @plugin setpoint_position
  *
- * Send setpoint positions to FCU controller.
+ * Send setpoint positions to FCU controller. Uses the
+ * [MAVLink Offboard Control Protocol](https://mavlink.io/en/services/offboard_control.html).
  */
 class SetpointPositionPlugin : public plugin::Plugin,
   private plugin::SetPositionTargetLocalNEDMixin<SetpointPositionPlugin>,
@@ -68,23 +69,28 @@ public:
 
     auto sensor_qos = rclcpp::SensorDataQoS();
 
+    //! Local position setpoint (SET_POSITION_TARGET_LOCAL_NED).
     setpoint_sub = node->create_subscription<geometry_msgs::msg::PoseStamped>(
       "~/local", sensor_qos, std::bind(
         &SetpointPositionPlugin::setpoint_cb, this,
         _1));
+    //! Global position setpoint (SET_POSITION_TARGET_GLOBAL_INT).
     setpointg_sub = node->create_subscription<geographic_msgs::msg::GeoPoseStamped>(
       "~/global",
       sensor_qos, std::bind(
         &SetpointPositionPlugin::setpointg_cb, this,
         _1));
+    //! Global setpoint converted to local setpoint (SET_POSITION_TARGET_LOCAL_NED).
     setpointg2l_sub = node->create_subscription<geographic_msgs::msg::GeoPoseStamped>(
       "~/global_to_local", sensor_qos,
       std::bind(&SetpointPositionPlugin::setpointg2l_cb, this, _1));
 
+    //! Current global position used for conversion.
     gps_sub = node->create_subscription<sensor_msgs::msg::NavSatFix>(
       "global_position/global",
       sensor_qos,
       std::bind(&SetpointPositionPlugin::gps_cb, this, _1));
+    //! Current local position used for conversion.
     local_sub = node->create_subscription<geometry_msgs::msg::PoseStamped>(
       "local_position/pose",
       sensor_qos,
@@ -220,7 +226,7 @@ private:
     /**
      * The idea is to convert the change in LLA(goal_gps-current_gps) to change in ENU
      * 1. convert current/goal gps points to current/goal ECEF points
-     * 2. claculate offset in ECEF frame
+     * 2. calculate offset in ECEF frame
      * 3. converts ECEF offset to ENU offset given current gps LLA
      * 4. adds ENU offset to current local ENU to that will be sent to FCU
      */
@@ -231,7 +237,7 @@ private:
     Eigen::Vector3d goal_gps(req->pose.position.latitude, req->pose.position.longitude,
       req->pose.position.altitude);
 
-    // current gps -> curent ECEF
+    // current gps -> current ECEF
     Eigen::Vector3d current_ecef;
     earth.Forward(
       current_gps.x(), current_gps.y(), current_gps.z(),
