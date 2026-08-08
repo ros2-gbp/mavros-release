@@ -20,14 +20,18 @@
 // #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <array>
 #include <chrono>
+#include <cmath>
 #include <condition_variable>
 #include <limits>
 #include <memory>
+#include <thread>
 
 #include "mavconn/interface.hpp"
 #include "mavconn/serial.hpp"
 #include "mavconn/tcp.hpp"
+#include "mavconn/thread_utils.hpp"
 #include "mavconn/udp.hpp"
 
 using namespace mavconn; // NOLINT
@@ -63,6 +67,73 @@ static void send_heartbeat(MAVConnInterface * ip)
   ip->send_message(hb);
 }
 
+class DummyConn : public MAVConnInterface
+{
+public:
+  using MAVConnInterface::iostat_rx_add;
+  using MAVConnInterface::iostat_tx_add;
+
+  void connect(
+    const ReceivedCb & cb_handle_message [[maybe_unused]],
+    const ClosedCb & cb_handle_closed_port [[maybe_unused]] = ClosedCb()) override
+  {}
+
+  void close() override {}
+
+  void send_message(const mavlink_message_t * message [[maybe_unused]]) override {}
+
+  void send_message(
+    const mavlink::Message & message [[maybe_unused]],
+    const uint8_t source_compid [[maybe_unused]]) override
+  {}
+
+  void send_bytes(
+    const uint8_t * bytes [[maybe_unused]],
+    size_t length [[maybe_unused]]) override
+  {}
+
+  bool is_open() override
+  {
+    return true;
+  }
+};
+
+TEST(UTILS, format)
+{
+  using mavconn::utils::format;
+
+  EXPECT_EQ("ep:1000", format("ep:%d", 1000));
+  EXPECT_EQ("hello world", format("hello %s", "world"));
+  EXPECT_EQ("a/b", format("%s/%s", "a", "b"));
+  EXPECT_EQ("", format(""));
+  EXPECT_EQ("", format("%s", ""));
+  EXPECT_EQ("123456", format("%zu", size_t(123456)));
+  EXPECT_EQ("AB", format("%2X", 0xAB));
+
+  // larger than the format() stack buffer (256 bytes); must grow correctly
+  const std::string big(500, 'x');
+  EXPECT_EQ("big:" + big, format("big:%s", big.c_str()));
+
+  // boundary: 255 chars fit in the stack buffer, 256 must grow
+  const std::string s255(255, 'a');
+  EXPECT_EQ(s255, format("%s", s255.c_str()));
+  const std::string s256(256, 'b');
+  EXPECT_EQ(s256, format("%s", s256.c_str()));
+}
+
+TEST(IOSTAT, finite_speed_for_subsecond_polling)
+{
+  DummyConn conn;
+  conn.iostat_tx_add(64);
+  conn.iostat_rx_add(128);
+
+  const auto stat = conn.get_iostat();
+  EXPECT_EQ(stat.tx_total_bytes, 64U);
+  EXPECT_EQ(stat.rx_total_bytes, 128U);
+  EXPECT_TRUE(std::isfinite(stat.tx_speed));
+  EXPECT_TRUE(std::isfinite(stat.rx_speed));
+}
+
 class UDP : public ::testing::Test
 {
 public:
@@ -86,7 +157,7 @@ public:
 };
 
 #if 0
-// XXX(vooon): temparary disable that check - it don't work on Travis (with ICI)
+// XXX(vooon): temporary disable that check - it don't work on Travis (with ICI)
 TEST_F(UDP, bind_error)
 {
   MAVConnInterface::Ptr conns[2];
@@ -113,20 +184,126 @@ TEST_F(UDP, send_message)
   // create client
   client = std::make_shared<MAVConnUDP>(44, 200, "0.0.0.0", 45003, "localhost", 45002);
   client->connect(
-    std::bind(
-      &UDP::recv_message, this, std::placeholders::_1,
-      std::placeholders::_2));
+    [this](const mavlink_message_t * msg, const Framing framing) {
+      this->recv_message(msg, framing);
+    });
 
   // wait echo
   send_heartbeat(client.get());
   send_heartbeat(client.get());
-  EXPECT_EQ(wait_one(), true);
+  EXPECT_TRUE(wait_one());
   EXPECT_EQ(message_id, msgid);
+}
+
+TEST(IO_THREAD, udp_shared_io_context_stays_running_after_close)
+{
+  asio::io_context shared_io;
+  auto io_work =
+    std::make_unique<asio::executor_work_guard<asio::io_context::executor_type>>(
+    asio::make_work_guard(shared_io));
+  std::jthread io_thread([&shared_io]() {shared_io.run();});
+
+  std::mutex mutex;
+  std::condition_variable cond;
+  bool got_echo = false;
+  bool posted_done = false;
+
+  auto echo = std::make_shared<MAVConnUDP>(
+    42, 200, "0.0.0.0", 45022, "", MAVConnUDP::DEFAULT_REMOTE_PORT, &shared_io);
+  echo->connect(
+    [&](const mavlink_message_t * msg, const Framing framing [[maybe_unused]]) {
+      echo->send_message(msg);
+    });
+
+  auto client = std::make_shared<MAVConnUDP>(
+    44, 200, "0.0.0.0", 45023, "localhost", 45022, &shared_io);
+  client->connect(
+    [&](const mavlink_message_t * message [[maybe_unused]],
+    const Framing framing [[maybe_unused]])
+    {
+      std::lock_guard<std::mutex> lock(mutex);
+      got_echo = true;
+      cond.notify_all();
+    });
+
+  send_heartbeat(client.get());
+  send_heartbeat(client.get());
+  {
+    std::unique_lock<std::mutex> lock(mutex);
+    EXPECT_TRUE(cond.wait_for(lock, std::chrono::seconds(2), [&]() {return got_echo;}));
+  }
+
+  echo->close();
+
+  asio::post(shared_io, [&]() {
+      std::lock_guard<std::mutex> lock(mutex);
+      posted_done = true;
+      cond.notify_all();
+  });
+  {
+    std::unique_lock<std::mutex> lock(mutex);
+    EXPECT_TRUE(cond.wait_for(lock, std::chrono::seconds(2), [&]() {return posted_done;}));
+  }
+
+  client->close();
+  io_work.reset();
+  shared_io.stop();
+}
+
+TEST(IO_THREAD, udp_close_from_callback_does_not_deadlock)
+{
+  std::mutex mutex;
+  std::condition_variable cond;
+  bool callback_finished = false;
+  bool closed_callback_called = false;
+
+  auto echo = std::make_shared<MAVConnUDP>(42, 200, "0.0.0.0", 45032);
+  echo->connect(
+    [&](const mavlink_message_t * msg, const Framing framing [[maybe_unused]]) {
+      echo->send_message(msg);
+    });
+
+  auto client = std::make_shared<MAVConnUDP>(
+    44, 200, "0.0.0.0", 45033, "localhost", 45032);
+  client->connect(
+    [&](const mavlink_message_t * message [[maybe_unused]],
+    const Framing framing [[maybe_unused]])
+    {
+      client->close();
+      std::lock_guard<std::mutex> lock(mutex);
+      callback_finished = true;
+      cond.notify_all();
+    },
+    [&]() {
+      std::lock_guard<std::mutex> lock(mutex);
+      closed_callback_called = true;
+      cond.notify_all();
+    });
+
+  send_heartbeat(client.get());
+  send_heartbeat(client.get());
+
+  {
+    std::unique_lock<std::mutex> lock(mutex);
+    EXPECT_EQ(
+      cond.wait_for(lock, std::chrono::seconds(2), [&]() {return callback_finished;}), true);
+    EXPECT_EQ(
+      cond.wait_for(lock, std::chrono::seconds(2), [&]() {return closed_callback_called;}), true);
+  }
+
+  echo->close();
 }
 
 class TCP : public UDP
 {
 };
+
+static bool accept_unsigned_for_test(
+  const mavlink::mavlink_status_t * status [[maybe_unused]],
+  uint32_t msgid [[maybe_unused]])
+{
+  return true;
+}
 
 TEST_F(TCP, bind_error)
 {
@@ -165,14 +342,14 @@ TEST_F(TCP, send_message)
   // create client
   client = std::make_shared<MAVConnTCPClient>(44, 200, "localhost", 57602);
   client->connect(
-    std::bind(
-      &TCP::recv_message, this, std::placeholders::_1,
-      std::placeholders::_2));
+    [this](const mavlink_message_t * msg, const Framing framing) {
+      this->recv_message(msg, framing);
+    });
 
   // wait echo
   send_heartbeat(client.get());
   send_heartbeat(client.get());
-  EXPECT_EQ(wait_one(), true);
+  EXPECT_TRUE(wait_one());
   EXPECT_EQ(message_id, msgid);
 }
 
@@ -212,6 +389,129 @@ TEST(SERIAL, open_error)
       42, 200, "/some/magic/not/exist/path",
       57600),
     DeviceError);
+}
+
+TEST(SIGNING, udp_signed_packet_is_accepted)
+{
+  std::mutex mutex;
+  std::condition_variable cond;
+  auto got = false;
+  auto framing = Framing::incomplete;
+  auto message_id = std::numeric_limits<msgid_t>::max();
+
+  const std::array<uint8_t, 32> key {0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42,
+    0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42,
+    0x42, 0x42, 0x42, 0x42, 0x42, 0x42};
+
+  auto receiver = std::make_shared<MAVConnUDP>(42, 200, "0.0.0.0", 45042);
+  receiver->setup_signing(key, true, 1, 1U);
+  receiver->connect(
+    [&](const mavlink_message_t * message, const Framing msg_framing) {
+      std::lock_guard<std::mutex> lock(mutex);
+      message_id = message->msgid;
+      framing = msg_framing;
+      got = true;
+      cond.notify_all();
+    });
+
+  auto sender = std::make_shared<MAVConnUDP>(44, 200, "0.0.0.0", 45043, "localhost", 45042);
+  sender->setup_signing(key, true, 2, 1U);
+  sender->connect(MAVConnInterface::ReceivedCb());
+
+  send_heartbeat(sender.get());
+  send_heartbeat(sender.get());
+
+  {
+    std::unique_lock<std::mutex> lock(mutex);
+    EXPECT_TRUE(cond.wait_for(lock, std::chrono::seconds(2), [&]() {return got;}));
+  }
+  EXPECT_EQ(framing, Framing::ok);
+  EXPECT_EQ(message_id, mavlink::common::msg::HEARTBEAT::MSG_ID);
+
+  sender->close();
+  receiver->close();
+}
+
+TEST(SIGNING, udp_signature_mismatch_is_reported)
+{
+  std::mutex mutex;
+  std::condition_variable cond;
+  auto got = false;
+  auto framing = Framing::incomplete;
+
+  const std::array<uint8_t, 32> sender_key {0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
+    0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
+    0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11};
+  const std::array<uint8_t, 32> receiver_key {0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22,
+    0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22,
+    0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22};
+
+  auto receiver = std::make_shared<MAVConnUDP>(42, 200, "0.0.0.0", 45044);
+  receiver->setup_signing(receiver_key, true, 1, 1U);
+  receiver->connect(
+    [&](const mavlink_message_t * message [[maybe_unused]], const Framing msg_framing) {
+      std::lock_guard<std::mutex> lock(mutex);
+      framing = msg_framing;
+      got = true;
+      cond.notify_all();
+    });
+
+  auto sender = std::make_shared<MAVConnUDP>(44, 200, "0.0.0.0", 45045, "localhost", 45044);
+  sender->setup_signing(sender_key, true, 2, 1U);
+  sender->connect(MAVConnInterface::ReceivedCb());
+
+  send_heartbeat(sender.get());
+  send_heartbeat(sender.get());
+
+  {
+    std::unique_lock<std::mutex> lock(mutex);
+    EXPECT_TRUE(cond.wait_for(lock, std::chrono::seconds(2), [&]() {return got;}));
+  }
+  EXPECT_EQ(framing, Framing::bad_signature);
+
+  sender->close();
+  receiver->close();
+}
+
+TEST(SIGNING, udp_accept_unsigned_callback_allows_unsigned_packets)
+{
+  std::mutex mutex;
+  std::condition_variable cond;
+  auto got = false;
+  auto framing = Framing::incomplete;
+  auto message_id = std::numeric_limits<msgid_t>::max();
+
+  const std::array<uint8_t, 32> receiver_key {0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33,
+    0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33,
+    0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33};
+
+  auto receiver = std::make_shared<MAVConnUDP>(42, 200, "0.0.0.0", 45046);
+  receiver->setup_signing(receiver_key, true, 1, 1U);
+  receiver->set_accept_unsigned_callback(accept_unsigned_for_test);
+  receiver->connect(
+    [&](const mavlink_message_t * message, const Framing msg_framing) {
+      std::lock_guard<std::mutex> lock(mutex);
+      message_id = message->msgid;
+      framing = msg_framing;
+      got = true;
+      cond.notify_all();
+    });
+
+  auto sender = std::make_shared<MAVConnUDP>(44, 200, "0.0.0.0", 45047, "localhost", 45046);
+  sender->connect(MAVConnInterface::ReceivedCb());
+
+  send_heartbeat(sender.get());
+  send_heartbeat(sender.get());
+
+  {
+    std::unique_lock<std::mutex> lock(mutex);
+    EXPECT_TRUE(cond.wait_for(lock, std::chrono::seconds(2), [&]() {return got;}));
+  }
+  EXPECT_EQ(framing, Framing::ok);
+  EXPECT_EQ(message_id, mavlink::common::msg::HEARTBEAT::MSG_ID);
+
+  sender->close();
+  receiver->close();
 }
 
 #if 0
@@ -271,6 +571,42 @@ TEST(URL, open_url_udp)
     udp = MAVConnInterface::open_url("udp://localhost:45008");
   },
     DeviceError);
+
+  EXPECT_THROW(
+  {
+    udp = MAVConnInterface::open_url("udp://localhost:0@localhost:14550");
+  },
+    DeviceError);
+
+  EXPECT_THROW(
+  {
+    udp = MAVConnInterface::open_url("udp://localhost:65536@localhost:14550");
+  },
+    DeviceError);
+
+  EXPECT_THROW(
+  {
+    udp = MAVConnInterface::open_url("udp://localhost:14550x@localhost:14550");
+  },
+    DeviceError);
+
+  EXPECT_THROW(
+  {
+    udp = MAVConnInterface::open_url("udp://localhost:14550@localhost:14550/?ids=300,1");
+  },
+    DeviceError);
+
+  EXPECT_THROW(
+  {
+    udp = MAVConnInterface::open_url("udp://localhost:14550@localhost:14550/?ids=-1,1");
+  },
+    DeviceError);
+
+  EXPECT_THROW(
+  {
+    udp = MAVConnInterface::open_url("udp://localhost:14550@localhost:14550/?ids=a,1");
+  },
+    DeviceError);
 }
 
 TEST(URL, open_url_tcp)
@@ -293,6 +629,18 @@ TEST(URL, open_url_tcp)
     tcp_client_p = dynamic_cast<MAVConnTCPClient *>(tcp_client.get());
     EXPECT_NE(tcp_client_p, nullptr);
   });
+
+  EXPECT_THROW(
+  {
+    tcp_client = MAVConnInterface::open_url("tcp://localhost:0");
+  },
+    DeviceError);
+
+  EXPECT_THROW(
+  {
+    tcp_client = MAVConnInterface::open_url("tcp://localhost:abc");
+  },
+    DeviceError);
 }
 
 int main(int argc, char ** argv)
