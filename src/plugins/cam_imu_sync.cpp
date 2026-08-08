@@ -31,7 +31,7 @@ namespace extra_plugins
  *
  * This plugin publishes a timestamp for when a external camera system was
  * triggered by the FCU. Sequence ID from the message and the image sequence from
- * camera can be corellated to get the exact shutter trigger time.
+ * camera can be correlated to get the exact shutter trigger time.
  */
 class CamIMUSyncPlugin : public plugin::Plugin
 {
@@ -39,6 +39,7 @@ public:
   explicit CamIMUSyncPlugin(plugin::UASPtr uas_)
   : Plugin(uas_, "cam_imu_sync")
   {
+    //! Publish camera IMU trigger timestamp from MAVLink CAMERA_TRIGGER.
     cam_imu_pub = node->create_publisher<mavros_msgs::msg::CamIMUStamp>("~/cam_imu_stamp", 10);
   }
 
