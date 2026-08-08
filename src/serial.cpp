@@ -30,7 +30,7 @@ namespace mavconn
 {
 
 using asio::buffer;
-using asio::io_service;
+using asio::io_context;
 using mavlink::mavlink_message_t;
 using std::error_code;
 
@@ -39,10 +39,11 @@ using std::error_code;
 
 MAVConnSerial::MAVConnSerial(
   uint8_t system_id, uint8_t component_id,
-  std::string device, unsigned baudrate, bool hwflow)
+  std::string device, unsigned baudrate, bool hwflow, asio::io_context * shared_io)
 : MAVConnInterface(system_id, component_id),
-  io_service(),
-  serial_dev(io_service),
+  io_runner(shared_io),
+  io_context(io_runner.io()),
+  serial_dev(io_context),
   tx_in_progress(false),
   tx_q{},
   rx_buf{}
@@ -122,35 +123,38 @@ void MAVConnSerial::connect(
   message_received_cb = cb_handle_message;
   port_closed_cb = cb_handle_closed_port;
 
-  // give some work to io_service before start
-  io_service.post(std::bind(&MAVConnSerial::do_read, this));
+  // give some work to io_context before start
+  asio::post(io_context, [this]() {this->do_read();});
 
-  // run io_service for async io
-  io_thread = std::thread(
-    [this]() {
-      utils::set_this_thread_name("mserial%zu", conn_id);
-      io_service.run();
-    });
+  if (io_runner.owns_thread()) {
+    // run io_context for async io
+    io_runner.start(
+      [this]() {
+        utils::set_this_thread_name("mserial%zu", conn_id);
+        io_context.run();
+      });
+  }
 }
 
 
 void MAVConnSerial::close()
 {
-  lock_guard lock(mutex);
-  if (!is_open()) {
-    return;
+  {
+    std::lock_guard<std::mutex> lock(mutex);
+    if (!is_open()) {
+      return;
+    }
+
+    serial_dev.cancel();
+    serial_dev.close();
   }
 
-  serial_dev.cancel();
-  serial_dev.close();
-
-  io_service.stop();
-
-  if (io_thread.joinable()) {
-    io_thread.join();
+  // Join the io thread without holding mutex: closing the device makes do_read
+  // complete with an error on the io thread, whose handler calls close() again
+  // and would block on mutex held here while we join it.
+  if (io_runner.owns_thread()) {
+    io_runner.shutdown_owned();
   }
-
-  io_service.reset();
 
   if (port_closed_cb) {
     port_closed_cb();
@@ -164,16 +168,24 @@ void MAVConnSerial::send_bytes(const uint8_t * bytes, size_t length)
     return;
   }
 
+  bool start_chain = false;
   {
-    lock_guard lock(mutex);
+    std::lock_guard<std::mutex> lock(mutex);
 
     if (tx_q.size() >= MAX_TXQ_SIZE) {
       throw std::length_error("MAVConnSerial::send_bytes: TX queue overflow");
     }
 
     tx_q.emplace_back(bytes, length);
+    if (!tx_in_progress) {
+      tx_in_progress = true;
+      start_chain = true;
+    }
   }
-  io_service.post(std::bind(&MAVConnSerial::do_write, shared_from_this(), true));
+  if (start_chain) {
+    auto sthis = shared_from_this();
+    asio::post(io_context, [sthis]() {sthis->do_write(false);});
+  }
 }
 
 void MAVConnSerial::send_message(const mavlink_message_t * message)
@@ -187,16 +199,24 @@ void MAVConnSerial::send_message(const mavlink_message_t * message)
 
   log_send(PFX, message);
 
+  bool start_chain = false;
   {
-    lock_guard lock(mutex);
+    std::lock_guard<std::mutex> lock(mutex);
 
     if (tx_q.size() >= MAX_TXQ_SIZE) {
       throw std::length_error("MAVConnSerial::send_message: TX queue overflow");
     }
 
     tx_q.emplace_back(message);
+    if (!tx_in_progress) {
+      tx_in_progress = true;
+      start_chain = true;
+    }
   }
-  io_service.post(std::bind(&MAVConnSerial::do_write, shared_from_this(), true));
+  if (start_chain) {
+    auto sthis = shared_from_this();
+    asio::post(io_context, [sthis]() {sthis->do_write(false);});
+  }
 }
 
 void MAVConnSerial::send_message(const mavlink::Message & message, const uint8_t source_compid)
@@ -208,16 +228,24 @@ void MAVConnSerial::send_message(const mavlink::Message & message, const uint8_t
 
   log_send_obj(PFX, message);
 
+  bool start_chain = false;
   {
-    lock_guard lock(mutex);
+    std::lock_guard<std::mutex> lock(mutex);
 
     if (tx_q.size() >= MAX_TXQ_SIZE) {
       throw std::length_error("MAVConnSerial::send_message: TX queue overflow");
     }
 
     tx_q.emplace_back(message, get_status_p(), sys_id, source_compid);
+    if (!tx_in_progress) {
+      tx_in_progress = true;
+      start_chain = true;
+    }
   }
-  io_service.post(std::bind(&MAVConnSerial::do_write, shared_from_this(), true));
+  if (start_chain) {
+    auto sthis = shared_from_this();
+    asio::post(io_context, [sthis]() {sthis->do_write(false);});
+  }
 }
 
 void MAVConnSerial::do_read(void)
@@ -243,7 +271,7 @@ void MAVConnSerial::do_write(bool check_tx_state)
     return;
   }
 
-  lock_guard lock(mutex);
+  std::lock_guard<std::mutex> lock(mutex);
   if (tx_q.empty()) {
     return;
   }
@@ -251,11 +279,11 @@ void MAVConnSerial::do_write(bool check_tx_state)
   tx_in_progress = true;
   auto sthis = shared_from_this();
   auto & buf_ref = tx_q.front();
-  serial_dev.async_write_some(
-    buffer(buf_ref.dpos(), buf_ref.nbytes()),
-    [sthis, &buf_ref](error_code error, size_t bytes_transferred) {
-      assert(ssize_t(bytes_transferred) <= buf_ref.len);
-
+  // asio::async_write loops over partial writes internally and calls the
+  // handler once the whole buffer is sent, so no manual pos tracking/resend.
+  asio::async_write(
+    serial_dev, buffer(buf_ref.dpos(), buf_ref.nbytes()),
+    [sthis](error_code error, size_t bytes_transferred) {
       if (error) {
         CONSOLE_BRIDGE_logError(PFXd "write: %s", sthis->conn_id, error.message().c_str());
         sthis->close();
@@ -263,22 +291,26 @@ void MAVConnSerial::do_write(bool check_tx_state)
       }
 
       sthis->iostat_tx_add(bytes_transferred);
-      lock_guard lock(sthis->mutex);
+      bool continue_send = false;
+      {
+        std::lock_guard<std::mutex> lock(sthis->mutex);
 
-      if (sthis->tx_q.empty()) {
-        sthis->tx_in_progress = false;
-        return;
-      }
+        if (sthis->tx_q.empty()) {
+          sthis->tx_in_progress = false;
+          return;
+        }
 
-      buf_ref.pos += bytes_transferred;
-      if (buf_ref.nbytes() == 0) {
         sthis->tx_q.pop_front();
+
+        if (!sthis->tx_q.empty()) {
+          continue_send = true;
+        } else {
+          sthis->tx_in_progress = false;
+        }
       }
 
-      if (!sthis->tx_q.empty()) {
-        sthis->do_write(false);
-      } else {
-        sthis->tx_in_progress = false;
+      if (continue_send) {
+        asio::post(sthis->io_context, [sthis]() {sthis->do_write(false);});
       }
     });
 }
