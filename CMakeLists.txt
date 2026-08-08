@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.10)
 project(mavros)
 
 # Default to C++20
@@ -91,6 +91,13 @@ if(message_filters_VERSION VERSION_LESS 5.0.0)
   # Jazzy and older
   add_definitions(
     -DUSE_OLD_RMW_QOS_MESSAGE_FILTERS
+  )
+endif()
+
+if(rclcpp_VERSION VERSION_GREATER_EQUAL 30.0.0)
+  # Lyrical and newer: Callback Group Events executor (EventsCBGExecutor)
+  add_definitions(
+    -DMAVROS_HAVE_EVENTS_CBG_EXECUTOR
   )
 endif()
 
@@ -280,8 +287,51 @@ if(BUILD_TESTING)
     ${mavros_msgs_TARGETS}
   )
 
+  find_package(ament_cmake_google_benchmark REQUIRED)
+  ament_add_gtest(mavros-router-e2e test/test_router_e2e.cpp)
+  target_link_libraries(mavros-router-e2e
+    mavros
+    ${mavros_msgs_TARGETS}
+  )
+
+  ament_add_google_benchmark_executable(mavros-router-benchmark test/test_router_benchmark.cpp)
+  target_link_libraries(mavros-router-benchmark
+    mavros
+    ${mavros_msgs_TARGETS}
+  )
+  ament_add_google_benchmark_test(mavros-router-benchmark
+    TIMEOUT 120
+  )
+
+  ament_add_google_benchmark_executable(mavros-router-select-benchmark test/test_router_select_benchmark.cpp)
+  target_link_libraries(mavros-router-select-benchmark
+    mavros
+    ${mavros_msgs_TARGETS}
+  )
+  ament_add_google_benchmark_test(mavros-router-select-benchmark
+    TIMEOUT 120
+  )
+
   ament_add_gmock(mavros-uas-test test/test_uas.cpp)
   target_link_libraries(mavros-uas-test
+    mavros
+    ${mavros_msgs_TARGETS}
+  )
+
+  ament_add_gtest(mavros-plugin-mission test/test_mission_flow.cpp)
+  target_link_libraries(mavros-plugin-mission
+    mavros
+    ${mavros_msgs_TARGETS}
+  )
+
+  ament_add_gtest(mavros-plugin-param test/test_param.cpp)
+  target_link_libraries(mavros-plugin-param
+    mavros
+    ${mavros_msgs_TARGETS}
+  )
+
+  ament_add_gtest(mavros-plugin-command test/test_command.cpp)
+  target_link_libraries(mavros-plugin-command
     mavros
     ${mavros_msgs_TARGETS}
   )
