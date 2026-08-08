@@ -24,12 +24,14 @@
 #define MAVCONN__INTERFACE_HPP_
 
 #include <atomic>
+#include <array>
 #include <cassert>
 #include <chrono>
 #include <deque>
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -38,12 +40,12 @@
 #include <unordered_map>
 #include <vector>
 
+#include <asio.hpp>
 #include <mavconn/mavlink_dialect.hpp>
 
 namespace mavconn
 {
 using steady_clock = std::chrono::steady_clock;
-using lock_guard = std::lock_guard<std::recursive_mutex>;
 
 //! Same as @p mavlink::common::MAV_COMPONENT::COMP_ID_UDP_BRIDGE
 static constexpr auto MAV_COMP_ID_UDP_BRIDGE = 240;
@@ -71,7 +73,7 @@ class DeviceError : public std::runtime_error
 {
 public:
   /**
-   * @breif Construct error.
+   * @brief Construct error.
    */
   template<typename T>
   DeviceError(const char * module, T msg)
@@ -218,11 +220,11 @@ public:
   //! Port closed notification callback
   ClosedCb port_closed_cb;
 
-  virtual mavlink::mavlink_status_t get_status();
-  virtual IOStat get_iostat();
-  virtual bool is_open() = 0;
+  [[nodiscard]] virtual mavlink::mavlink_status_t get_status();
+  [[nodiscard]] virtual IOStat get_iostat();
+  [[nodiscard]] virtual bool is_open() = 0;
 
-  inline uint8_t get_system_id()
+  [[nodiscard]] inline uint8_t get_system_id()
   {
     return sys_id;
   }
@@ -230,7 +232,7 @@ public:
   {
     sys_id = sysid;
   }
-  inline uint8_t get_component_id()
+  [[nodiscard]] inline uint8_t get_component_id()
   {
     return comp_id;
   }
@@ -243,7 +245,32 @@ public:
    * Set protocol used for encoding mavlink::Mavlink messages.
    */
   void set_protocol_version(Protocol pver);
-  Protocol get_protocol_version();
+  [[nodiscard]] Protocol get_protocol_version();
+
+  /**
+   * @brief Enable MAVLink v2 packet signing for this connection.
+   *
+   * @param[in] secret_key         32-byte signing key
+   * @param[in] sign_outgoing      enable signing for outgoing packets
+   * @param[in] link_id            link id embedded in outgoing signatures
+   * @param[in] initial_timestamp  optional initial timestamp in 10 usec units
+   *                               since 2015-01-01 00:00:00 UTC.
+   */
+  void setup_signing(
+    const std::array<uint8_t, 32> & secret_key,
+    bool sign_outgoing = true,
+    uint8_t link_id = 0,
+    std::optional<uint64_t> initial_timestamp = std::nullopt);
+
+  /**
+   * @brief Disable MAVLink v2 packet signing.
+   */
+  void disable_signing();
+
+  /**
+   * @brief Configure callback for accepting unsigned packets while signing is enabled.
+   */
+  void set_accept_unsigned_callback(mavlink::mavlink_accept_unsigned_t cb);
 
   /**
    * @brief Construct connection from URL
@@ -259,25 +286,32 @@ public:
    * @param[in] url           resource locator
    * @param[in] system_id     optional system id
    * @param[in] component_id  optional component id
+   * @param[in] shared_io     optional external io_context. If provided, caller owns
+   *                          its execution/threading lifecycle.
    * @return @a Ptr to constructed interface class,
-   *         or throw @a DeviceError if error occured.
+   *         or throw @a DeviceError if error occurred.
    */
-  static Ptr open_url(
+  [[nodiscard]] static Ptr open_url(
     std::string url,
     uint8_t system_id = 1, uint8_t component_id = MAV_COMP_ID_UDP_BRIDGE,
     const ReceivedCb & cb_handle_message = ReceivedCb(),
-    const ClosedCb & cb_handle_closed_port = ClosedCb()
+    const ClosedCb & cb_handle_closed_port = ClosedCb(),
+    asio::io_context * shared_io = nullptr
   );
 
   /**
    * @brief version of open_url() which do not perform connect()
+   *
+   * @param[in] shared_io optional external io_context. If provided, caller owns
+   *                      its execution/threading lifecycle.
    */
-  static Ptr open_url_no_connect(
+  [[nodiscard]] static Ptr open_url_no_connect(
     std::string url,
     uint8_t system_id = 1,
-    uint8_t component_id = MAV_COMP_ID_UDP_BRIDGE);
+    uint8_t component_id = MAV_COMP_ID_UDP_BRIDGE,
+    asio::io_context * shared_io = nullptr);
 
-  static std::vector<std::string> get_known_dialects();
+  [[nodiscard]] static std::vector<std::string> get_known_dialects();
 
 protected:
   uint8_t sys_id;    //!< Connection System Id
@@ -296,7 +330,7 @@ protected:
 
   inline mavlink::mavlink_status_t * get_status_p()
   {
-    return &m_parse_status;
+    return &m_tx_status;
   }
 
   inline mavlink::mavlink_message_t * get_buffer_p()
@@ -319,12 +353,21 @@ protected:
 private:
   friend const mavlink::mavlink_msg_entry_t * mavlink::mavlink_get_msg_entry(uint32_t msgid);
 
-  mavlink::mavlink_status_t m_parse_status;
+  static uint64_t default_signing_timestamp();
+  void apply_signing_config(bool sign_outgoing, uint8_t link_id, uint64_t timestamp);
+
+  mavlink::mavlink_status_t m_rx_parse_status;
   mavlink::mavlink_message_t m_buffer;
-  mavlink::mavlink_status_t m_mavlink_status;
+  mavlink::mavlink_status_t m_rx_status;
+  mavlink::mavlink_status_t m_tx_status;
+
+  mavlink::mavlink_signing_t m_rx_signing;
+  mavlink::mavlink_signing_t m_tx_signing;
+  mavlink::mavlink_signing_streams_t m_rx_signing_streams;
+  bool signing_enabled;
 
   std::atomic<size_t> tx_total_bytes, rx_total_bytes;
-  std::recursive_mutex iostat_mutex;
+  std::mutex iostat_mutex;
   size_t last_tx_total_bytes, last_rx_total_bytes;
   std::chrono::time_point<steady_clock> last_iostat;
 

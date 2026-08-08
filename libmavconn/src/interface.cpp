@@ -16,6 +16,8 @@
  */
 
 #include <cassert>
+#include <cstring>
+#include <limits>
 #include <memory>
 #include <set>
 #include <string>
@@ -45,9 +47,14 @@ std::atomic<size_t> MAVConnInterface::conn_id_counter {0};
 MAVConnInterface::MAVConnInterface(uint8_t system_id, uint8_t component_id)
 : sys_id(system_id),
   comp_id(component_id),
-  m_parse_status{},
+  m_rx_parse_status{},
   m_buffer{},
-  m_mavlink_status{},
+  m_rx_status{},
+  m_tx_status{},
+  m_rx_signing{},
+  m_tx_signing{},
+  m_rx_signing_streams{},
+  signing_enabled(false),
   tx_total_bytes(0),
   rx_total_bytes(0),
   last_tx_total_bytes(0),
@@ -60,12 +67,12 @@ MAVConnInterface::MAVConnInterface(uint8_t system_id, uint8_t component_id)
 
 mavlink_status_t MAVConnInterface::get_status()
 {
-  return m_mavlink_status;
+  return m_rx_status;
 }
 
 MAVConnInterface::IOStat MAVConnInterface::get_iostat()
 {
-  std::lock_guard<std::recursive_mutex> lock(iostat_mutex);
+  std::lock_guard<std::mutex> lock(iostat_mutex);
   IOStat stat;
 
   stat.tx_total_bytes = tx_total_bytes;
@@ -80,10 +87,14 @@ MAVConnInterface::IOStat MAVConnInterface::get_iostat()
   auto dt = now - last_iostat;
   last_iostat = now;
 
-  float dt_s = std::chrono::duration_cast<std::chrono::seconds>(dt).count();
-
-  stat.tx_speed = d_tx / dt_s;
-  stat.rx_speed = d_rx / dt_s;
+  const float dt_s = std::chrono::duration<float>(dt).count();
+  if (dt_s > 0.0f) [[likely]] {  // NOLINT(readability/braces)
+    stat.tx_speed = d_tx / dt_s;
+    stat.rx_speed = d_rx / dt_s;
+  } else {
+    stat.tx_speed = 0.0f;
+    stat.rx_speed = 0.0f;
+  }
 
   return stat;
 }
@@ -111,8 +122,8 @@ void MAVConnInterface::parse_buffer(
     auto c = *buf++;
 
     auto msg_received = static_cast<Framing>(mavlink::mavlink_frame_char_buffer(
-        &m_buffer, &m_parse_status, c,
-        &message, &m_mavlink_status));
+        &m_buffer, &m_rx_parse_status, c,
+        &message, &m_rx_status));
 
     if (msg_received != Framing::incomplete) {
       log_recv(pfx, message, msg_received);
@@ -186,21 +197,95 @@ void MAVConnInterface::send_message_ignore_drop(const mavlink::Message & msg, ui
 void MAVConnInterface::set_protocol_version(Protocol pver)
 {
   if (pver == Protocol::V10) {
-    m_mavlink_status.flags |= MAVLINK_STATUS_FLAG_OUT_MAVLINK1;
-    m_parse_status.flags |= MAVLINK_STATUS_FLAG_OUT_MAVLINK1;
+    m_tx_status.flags |= MAVLINK_STATUS_FLAG_OUT_MAVLINK1;
+    m_rx_status.flags |= MAVLINK_STATUS_FLAG_OUT_MAVLINK1;
+    m_rx_parse_status.flags |= MAVLINK_STATUS_FLAG_OUT_MAVLINK1;
   } else {
-    m_mavlink_status.flags &= ~(MAVLINK_STATUS_FLAG_OUT_MAVLINK1);
-    m_parse_status.flags &= ~(MAVLINK_STATUS_FLAG_OUT_MAVLINK1);
+    m_tx_status.flags &= ~(MAVLINK_STATUS_FLAG_OUT_MAVLINK1);
+    m_rx_status.flags &= ~(MAVLINK_STATUS_FLAG_OUT_MAVLINK1);
+    m_rx_parse_status.flags &= ~(MAVLINK_STATUS_FLAG_OUT_MAVLINK1);
   }
 }
 
 Protocol MAVConnInterface::get_protocol_version()
 {
-  if (m_mavlink_status.flags & MAVLINK_STATUS_FLAG_OUT_MAVLINK1) {
+  if (m_tx_status.flags & MAVLINK_STATUS_FLAG_OUT_MAVLINK1) {
     return Protocol::V10;
   } else {
     return Protocol::V20;
   }
+}
+
+uint64_t MAVConnInterface::default_signing_timestamp()
+{
+  constexpr auto mavlink_signing_epoch = std::chrono::sys_days {std::chrono::year(2015) /
+    std::chrono::January / 1};
+  auto now = std::chrono::system_clock::now();
+  if (now < mavlink_signing_epoch) {
+    now = mavlink_signing_epoch;
+  }
+
+  const auto delta_us = std::chrono::duration_cast<std::chrono::microseconds>(
+    now - mavlink_signing_epoch).count();
+  return static_cast<uint64_t>(delta_us / 10);
+}
+
+void MAVConnInterface::apply_signing_config(bool sign_outgoing, uint8_t link_id, uint64_t timestamp)
+{
+  m_tx_signing.flags = sign_outgoing ? MAVLINK_SIGNING_FLAG_SIGN_OUTGOING : 0;
+  m_tx_signing.link_id = link_id;
+  m_tx_signing.timestamp = timestamp;
+  m_tx_signing.last_status = mavlink::MAVLINK_SIGNING_STATUS_NONE;
+
+  m_rx_signing.flags = sign_outgoing ? MAVLINK_SIGNING_FLAG_SIGN_OUTGOING : 0;
+  m_rx_signing.link_id = link_id;
+  m_rx_signing.timestamp = timestamp;
+  m_rx_signing.last_status = mavlink::MAVLINK_SIGNING_STATUS_NONE;
+
+  m_rx_signing_streams = {};
+
+  m_tx_status.signing = &m_tx_signing;
+  m_rx_parse_status.signing = &m_rx_signing;
+  m_rx_parse_status.signing_streams = &m_rx_signing_streams;
+  m_rx_status.signing = &m_rx_signing;
+  m_rx_status.signing_streams = &m_rx_signing_streams;
+
+  signing_enabled = true;
+}
+
+void MAVConnInterface::setup_signing(
+  const std::array<uint8_t, 32> & secret_key,
+  bool sign_outgoing,
+  uint8_t link_id,
+  std::optional<uint64_t> initial_timestamp)
+{
+  std::memcpy(m_tx_signing.secret_key, secret_key.data(), secret_key.size());
+  std::memcpy(m_rx_signing.secret_key, secret_key.data(), secret_key.size());
+
+  const auto timestamp = initial_timestamp.value_or(default_signing_timestamp());
+  apply_signing_config(sign_outgoing, link_id, timestamp);
+}
+
+void MAVConnInterface::disable_signing()
+{
+  m_tx_signing = {};
+  m_rx_signing = {};
+  m_rx_signing_streams = {};
+
+  m_tx_status.signing = nullptr;
+  m_tx_status.signing_streams = nullptr;
+  m_rx_parse_status.signing = nullptr;
+  m_rx_parse_status.signing_streams = nullptr;
+  m_rx_status.signing = nullptr;
+  m_rx_status.signing_streams = nullptr;
+
+  signing_enabled = false;
+}
+
+void MAVConnInterface::set_accept_unsigned_callback(mavlink::mavlink_accept_unsigned_t cb)
+{
+  m_tx_signing.accept_unsigned_callback = cb;
+  m_rx_signing.accept_unsigned_callback = cb;
 }
 
 /**
@@ -211,6 +296,23 @@ static void url_parse_host(
   std::string & host_out, int & port_out,
   const std::string & def_host, const int def_port)
 {
+  auto parse_int_in_range = [](const std::string & value, int min, int max, const char * field) {
+      size_t pos = 0;
+      int parsed = 0;
+      const std::string err = std::string("invalid ") + field + " value: '" + value + "'";
+      try {
+        parsed = std::stoi(value, &pos);
+      } catch (const std::exception &) {
+        throw DeviceError("url", err.c_str());
+      }
+
+      if (pos != value.size() || parsed < min || parsed > max) {
+        throw DeviceError("url", err.c_str());
+      }
+
+      return parsed;
+    };
+
   std::string port;
 
   auto sep_it = std::find(host.begin(), host.end(), ':');
@@ -235,7 +337,7 @@ static void url_parse_host(
   }
 
   port.assign(sep_it + 1, host.end());
-  port_out = std::stoi(port);
+  port_out = parse_int_in_range(port, 1, std::numeric_limits<uint16_t>::max(), "port");
 }
 
 /**
@@ -243,6 +345,23 @@ static void url_parse_host(
  */
 static void url_parse_query(const std::string & query, uint8_t & sysid, uint8_t & compid)
 {
+  auto parse_uint8_value = [](const std::string & value, const char * field) {
+      size_t pos = 0;
+      int parsed = 0;
+      const std::string err = std::string("invalid ") + field + " value: '" + value + "'";
+      try {
+        parsed = std::stoi(value, &pos);
+      } catch (const std::exception &) {
+        throw DeviceError("url", err.c_str());
+      }
+
+      if (pos != value.size() || parsed < 0 || parsed > std::numeric_limits<uint8_t>::max()) {
+        throw DeviceError("url", err.c_str());
+      }
+
+      return static_cast<uint8_t>(parsed);
+    };
+
   const std::string ids_end("ids=");
   std::string sys, comp;
 
@@ -268,15 +387,15 @@ static void url_parse_query(const std::string & query, uint8_t & sysid, uint8_t 
   sys.assign(ids_it, comma_it);
   comp.assign(comma_it + 1, query.end());
 
-  sysid = std::stoi(sys);
-  compid = std::stoi(comp);
+  sysid = parse_uint8_value(sys, "system id");
+  compid = parse_uint8_value(comp, "component id");
 
   CONSOLE_BRIDGE_logDebug(PFX "URL: found system/component id = [%u, %u]", sysid, compid);
 }
 
 static MAVConnInterface::Ptr url_parse_serial(
   const std::string & path, const std::string & query,
-  uint8_t system_id, uint8_t component_id, bool hwflow)
+  uint8_t system_id, uint8_t component_id, bool hwflow, asio::io_context * shared_io)
 {
   std::string file_path;
   int baudrate;
@@ -289,12 +408,13 @@ static MAVConnInterface::Ptr url_parse_serial(
 
   return std::make_shared<MAVConnSerial>(
     system_id, component_id,
-    file_path, baudrate, hwflow);
+    file_path, baudrate, hwflow, shared_io);
 }
 
 static MAVConnInterface::Ptr url_parse_udp(
   const std::string & hosts, const std::string & query,
-  uint8_t system_id, uint8_t component_id, bool is_udpb, bool permanent_broadcast)
+  uint8_t system_id, uint8_t component_id, bool is_udpb, bool permanent_broadcast,
+  asio::io_context * shared_io)
 {
   std::string bind_pair, remote_pair;
   std::string bind_host, remote_host;
@@ -325,12 +445,12 @@ static MAVConnInterface::Ptr url_parse_udp(
   return std::make_shared<MAVConnUDP>(
     system_id, component_id,
     bind_host, bind_port,
-    remote_host, remote_port);
+    remote_host, remote_port, shared_io);
 }
 
 static MAVConnInterface::Ptr url_parse_tcp_client(
   const std::string & host, const std::string & query,
-  uint8_t system_id, uint8_t component_id)
+  uint8_t system_id, uint8_t component_id, asio::io_context * shared_io)
 {
   std::string server_host;
   int server_port;
@@ -341,12 +461,12 @@ static MAVConnInterface::Ptr url_parse_tcp_client(
 
   return std::make_shared<MAVConnTCPClient>(
     system_id, component_id,
-    server_host, server_port);
+    server_host, server_port, shared_io);
 }
 
 static MAVConnInterface::Ptr url_parse_tcp_server(
   const std::string & host, const std::string & query,
-  uint8_t system_id, uint8_t component_id)
+  uint8_t system_id, uint8_t component_id, asio::io_context * shared_io)
 {
   std::string bind_host;
   int bind_port;
@@ -357,13 +477,14 @@ static MAVConnInterface::Ptr url_parse_tcp_server(
 
   return std::make_shared<MAVConnTCPServer>(
     system_id, component_id,
-    bind_host, bind_port);
+    bind_host, bind_port, shared_io);
 }
 
 MAVConnInterface::Ptr MAVConnInterface::open_url_no_connect(
   std::string url,
   uint8_t system_id,
-  uint8_t component_id)
+  uint8_t component_id,
+  asio::io_context * shared_io)
 {
   /* Based on code found here:
    * http://stackoverflow.com/questions/2616011/easy-way-to-parse-a-url-in-c-cross-platform
@@ -381,7 +502,7 @@ MAVConnInterface::Ptr MAVConnInterface::open_url_no_connect(
   if (proto_it == url.end()) {
     // looks like file path
     CONSOLE_BRIDGE_logDebug(PFX "URL: %s: looks like file path", url.c_str());
-    return url_parse_serial(url, "", system_id, component_id, false);
+    return url_parse_serial(url, "", system_id, component_id, false, shared_io);
   }
 
   // copy protocol
@@ -415,19 +536,19 @@ MAVConnInterface::Ptr MAVConnInterface::open_url_no_connect(
   MAVConnInterface::Ptr interface_ptr;
 
   if (proto == "udp") {
-    interface_ptr = url_parse_udp(host, query, system_id, component_id, false, false);
+    interface_ptr = url_parse_udp(host, query, system_id, component_id, false, false, shared_io);
   } else if (proto == "udp-b") {
-    interface_ptr = url_parse_udp(host, query, system_id, component_id, true, false);
+    interface_ptr = url_parse_udp(host, query, system_id, component_id, true, false, shared_io);
   } else if (proto == "udp-pb") {
-    interface_ptr = url_parse_udp(host, query, system_id, component_id, true, true);
+    interface_ptr = url_parse_udp(host, query, system_id, component_id, true, true, shared_io);
   } else if (proto == "tcp") {
-    interface_ptr = url_parse_tcp_client(host, query, system_id, component_id);
+    interface_ptr = url_parse_tcp_client(host, query, system_id, component_id, shared_io);
   } else if (proto == "tcp-l") {
-    interface_ptr = url_parse_tcp_server(host, query, system_id, component_id);
+    interface_ptr = url_parse_tcp_server(host, query, system_id, component_id, shared_io);
   } else if (proto == "serial") {
-    interface_ptr = url_parse_serial(path, query, system_id, component_id, false);
+    interface_ptr = url_parse_serial(path, query, system_id, component_id, false, shared_io);
   } else if (proto == "serial-hwfc") {
-    interface_ptr = url_parse_serial(path, query, system_id, component_id, true);
+    interface_ptr = url_parse_serial(path, query, system_id, component_id, true, shared_io);
   } else {
     throw DeviceError("url", "Unknown URL type");
   }
@@ -440,9 +561,10 @@ MAVConnInterface::Ptr MAVConnInterface::open_url(
   uint8_t system_id,
   uint8_t component_id,
   const ReceivedCb & cb_handle_message,
-  const ClosedCb & cb_handle_closed_port)
+  const ClosedCb & cb_handle_closed_port,
+  asio::io_context * shared_io)
 {
-  auto interface_ptr = open_url_no_connect(url, system_id, component_id);
+  auto interface_ptr = open_url_no_connect(url, system_id, component_id, shared_io);
   if (interface_ptr) {
     if (!cb_handle_message) {
       CONSOLE_BRIDGE_logWarn(
