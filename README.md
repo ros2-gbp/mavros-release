@@ -1,113 +1,234 @@
-# MAVROS
+MAVROS
+======
 
-[![GitHub release (latest by date)](https://img.shields.io/github/v/release/mavlink/mavros)](https://github.com/mavlink/mavros/releases) [![Documentation](https://readthedocs.org/projects/mavros/badge/?version=latest)](https://mavros.readthedocs.io/en/latest/) [![CI](https://github.com/mavlink/mavros/actions/workflows/main.yml/badge.svg)](https://github.com/mavlink/mavros/actions/workflows/main.yml) [![Gitter](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/mavlink/mavros)
+MAVLink extendable communication node for ROS2.
 
-**A MAVLink-to-ROS 2 bridge for drones.**
+The ROS API (topics, services, parameters) of every plugin is documented in the
+[plugin reference](https://mavros.readthedocs.io/en/latest/plugins/) and the
+[full documentation](https://mavros.readthedocs.io/).
 
-MAVROS turns a MAVLink autopilot (PX4, ArduPilot, …) into a set of familiar
-ROS 2 topics, services and parameters, so you can program a drone in ROS the
-same way you would program any other robot — no need to speak MAVLink.
 
----
+Features
+--------
 
-## What is it?
+  - Communication with autopilot via serial port, UDP or TCP (e.g. [PX4 Pro][px4] or [ArduPilot][apm])
+  - Internal proxy for Ground Control Station (serial, UDP, TCP)
+  - Plugin system for ROS-MAVLink translation
+  - Parameter manipulation tool
+  - Waypoint manipulation tool
+  - PX4Flow support (by [mavros\_extras][mrext])
+  - OFFBOARD mode support
+  - Geographic coordinates conversions.
 
-MAVLink is the wire protocol most flight controllers speak. ROS 2 is a
-robotics framework for building software. MAVROS is the glue between them:
 
-```mermaid
-flowchart LR
-    subgraph FCU["Flight controller"]
-        AP[PX4 / ArduPilot]
-    end
-    subgraph MAV["MAVROS node"]
-        BR[bridge / plugins]
-    end
-    subgraph APP["Your ROS 2 app"]
-        N1[telemetry nodes]
-        N2[command nodes]
-        N3[mission / GCS nodes]
-    end
-    AP -- MAVLink (UDP/TCP/serial) --> BR
-    BR -- ROS 2 topics / services / params --> N1
-    BR --> N2
-    BR --> N3
-```
+Limitations
+-----------
 
-It does the boring, low-level work for you:
+Only for Linux.
 
-- **Telemetry out** — autopilot state, IMU, GPS, attitude, battery, and more
-  arrive as standard ROS 2 `sensor_msgs`/`mavros_msgs` topics.
-- **Commanding in** — arm/disarm, takeoff, land, set mode, upload missions and
-  geofences through familiar ROS 2 services.
-- **Routing** — MAVROS can proxy between a ground station, the FCU and multiple
-  ROS processes over a single link.
+This package depends on the [ros-*-mavlink][ml] MAVLink library (built from [mavlink-gbp-release][mlgbp]).
+It exists in ROS package index and usually updates each month.
 
-## Why MAVROS?
+Connection URL
+--------------
 
-- **Tested** against PX4 and ArduPilot, including SITL simulation.
-- **Extensible** — a plugin architecture translates each MAVLink message; add
-  behaviour without touching the core.
-- **ROS 2 native** — supports Humble and newer ROS 2 releases.
-- **Flexible transport** — USB/serial, UDP, TCP, or a shared UAS bus.
+Connection defined by URL, you can use any supported type for FCU and GCS.
 
-## Quick start
+Supported schemas:
 
-Install the package and its mandatory GeographicLib datasets:
+  - Serial: `/path/to/serial/device[:baudrate]`
+  - Serial: `serial:///path/to/serial/device[:baudrate][?ids=sysid,compid]`
+  - Serial with hardware flow control: `serial-hwfc:///path/to/serial/device[:baudrate][?ids=sysid,compid]`
+  - UDP: `udp://[bind_host][:port]@[remote_host[:port]][/?ids=sysid,compid]`
+  - UDP broadcast until GCS discovery: `udp-b://[bind_host][:port]@[:port][/?ids=sysid,compid]`
+  - UDP broadcast (permanent): `udp-pb://[bind_host][:port]@[:port][/?ids=sysid,compid]`
+  - TCP client: `tcp://[server_host][:port][/?ids=sysid,compid]`
+  - TCP server: `tcp-l://[bind_host][:port][/?ids=sysid,compid]`
 
-```shell
-sudo apt install ros-${ROS_DISTRO}-mavros
-sudo ros2 run mavros install_geographiclib_datasets.sh
-```
+Note:
 
-Launch the bridge against a flight controller (or a simulated one):
+  - Ids from URL overrides value given by system\_id & component\_id parameters.
+  - bind\_host - default `0.0.0.0` - i.e. IP4 ANY
+  - UDP default ports: 14555 @ 14550
+  - UDP remote address updated every time with incoming packet on bind port.
+  - TCP default port: 5760
 
-```shell
-ros2 launch mavros node.launch \
-  fcu_url:=udp://127.0.0.1:14550@127.0.0.1:14557
-```
 
-Then inspect the sensor stream:
+Coordinate frames
+-----------------
 
-```shell
-ros2 topic echo /mavros/imu/data
-```
+MAVROS does translate Aerospace NED frames, used in FCUs to ROS ENU frames and vice-versa.
+For translate airframe related data we simply apply rotation 180° about ROLL (X) axis.
+For local we apply 180° about ROLL (X) and 90° about YAW (Z) axes.
+Please read documents from issue #473 for additional information.
 
-See the [installation guide](docs/installation.md) for binary, source and
-container installs, and the [examples](docs/examples/) for task control and
-waypoint missions.
+All the conversions are handled in `src/lib/ftf_frame_conversions.cpp` and `src/lib/ftf_quaternion_utils.cpp` and tested in `test/test_frame_conversions.cpp` and `test/test_quaternion_utils.cpp` respectively.
 
-## Packages
+Related issues: [#49 (outdated)][iss49], [#216 (outdated)][iss216], [#317 (outdated)][iss317], [#319 (outdated)][iss319], [#321 (outdated)][iss321], [#473][iss473].
+Documents: [Frame Conversions][iss473rfc], [Mavlink coordinate frames][iss473table].
 
-| Package | Purpose |
-|---------|---------|
-| `mavros` | Core nodes (Router, UAS) and standard plugins |
-| `mavros_extras` | Optional plugins (cameras, gimbals, terrain, …) |
-| `mavros_msgs` | ROS 2 message and service interfaces |
-| `libmavconn` | MAVLink transport library (usable outside ROS) |
-| `test_mavros` | Hand-tests and SITL manual for PX4/ArduPilot |
-| `mavros_examples` | Beginner-friendly ROS 2 example scripts (task control, waypoint missions, offboard) |
+MAVROS also allows conversion of geodetic and geocentric coordinates through [GeographicLib][geolib]
+given that:
+  - `geographic_msgs` and `NatSatFix.msg` require the LLA fields to be filled in WGS-84 datum,
+  meaning that the altitude should be the height above the WGS-84 ellipsoid. For that, a conversion
+  from the height above the geoid (AMSL, considering the egm96 geoid model) to height above the
+  WGS-84 ellipsoid, and vice-versa, is available and used in several plugins;
+  - According to ROS REP 105, the `earth` frame should be propagated in ECEF (Earth-Centered,
+  Earth-Fixed) local coordinates. For that, the functionalities of GeographicLib are used in
+  order to allow conversion from geodetic coordinates to geocentric coordinates;
+  - The translation from GPS coordinates to local geocentric coordinates require the definition
+  of a local origin on the `map` frame, in ECEF, and calculate the offset to it in ENU. All
+  the conversions are supported by GeographicLib classes and methods and implemented in the
+  `global_position` plugin.
 
-## Documentation
 
-- [Full documentation](https://mavros.readthedocs.io/)
-- [Plugin reference — every topic/service/parameter](docs/plugins/index.md)
-- [Per-package C++/Python API](https://docs.ros.org/en/rolling/p/mavros/)
-- [Changelog](https://mavros.readthedocs.io/en/latest/changelog/)
+Composite nodes
+---------------
 
-## Support
+See also: https://docs.ros.org/en/foxy/Tutorials/Composition.html
 
-Ask questions (not bug reports) on:
+### mavros::router::Router
 
-- [MAVROS Gitter](https://gitter.im/mavlink/mavros)
-- [PX4 Discuss](https://discuss.px4.io/)
-- [PX4 Slack](https://slack.px4.io/)
-- [ArduPilot Discuss](https://discuss.ardupilot.org/)
+This is router node required to support connections to FCU(s), GCS(es) and UAS nodes.
+The Router allows you to add/remove endpoints on the fly without node restart.
 
-## CI status
+### mavros::uas::UAS
 
-- ROS2 Humble: [![Build Status](https://build.ros2.org/job/Hdev__mavros__ubuntu_jammy_amd64/badge/icon)](https://build.ros2.org/job/Hdev__mavros__ubuntu_jammy_amd64/)
-- ROS2 Jazzy: [![Build Status](https://build.ros2.org/job/Jdev__mavros__ubuntu_noble_amd64/badge/icon)](https://build.ros2.org/job/Jdev__mavros__ubuntu_noble_amd64/)
-- ROS2 Kilted: [![Build Status](https://build.ros2.org/job/Kdev__mavros__ubuntu_noble_amd64/badge/icon)](https://build.ros2.org/job/Kdev__mavros__ubuntu_noble_amd64/)
-- ROS2 Lyrical: [![Build Status](https://build.ros2.org/job/Ldev__mavros__ubuntu_resolute_amd64/badge/icon)](https://build.ros2.org/job/Ldev__mavros__ubuntu_resolute_amd64/)
-- ROS2 Rolling: [![Build Status](https://build.ros2.org/job/Rdev__mavros__ubuntu_noble_amd64/badge/icon)](https://build.ros2.org/job/Rdev__mavros__ubuntu_noble_amd64/)
+This node is a plugin container which manages all protocol plugins.
+Each plugin is a subnode to this.
+
+
+Programs
+--------
+
+### mavros\_node -- all-in-one container
+
+That is a preconfigured composite node container, which provides similar parameters as ROS1 mavros\_node.
+That container loads Router, UAS and configures them to work together (sets uas\_link, etc.).
+
+Main node. Allow disable GCS proxy by setting empty URL.
+
+    ros2 run mavros mavros_node --ros-args --params-file params.yaml
+
+
+Executors
+---------
+
+MAVROS builds its executors via a factory that honors two environment variables:
+
+  - `MAVROS_EXECUTOR_TYPE` - executor used by both `mavros_node` container and
+    the UAS plugin executor:
+      - `mt` (default) - `rclcpp::executors::MultiThreadedExecutor`
+      - `events` (alias `cbg`) - the Callback Group Events executor
+        (`rclcpp::executors::EventsCBGExecutor`), available only on Lyrical+
+        (rclcpp >= 30.0.0). On older distros the request is ignored with a
+        warning and `MultiThreadedExecutor` is used.
+  - `MAVROS_UAS_EXECUTOR_THREADS` - number of threads for the UAS plugin
+    executor (default: clamped hardware concurrency, min 2 max 4; must be
+    >= 2 if set).
+
+Example, running `mavros_node` with the events executor:
+
+    MAVROS_EXECUTOR_TYPE=events ros2 run mavros mavros_node
+
+When MAVROS is used as composable nodes inside a component container, the
+container's executor is chosen with the container's own `--executor-type`
+argument instead; see the composable launch below.
+
+
+Launch Files
+------------
+
+**XXX TODO**! #1564
+
+Launch files are provided for use with common FCUs, in particular [Pixhawk](https://pixhawk.org/):
+
+  * [px4.launch](launch/px4.launch) -- for use with the PX4 Autopilot (for VTOL, multicopters and planes)
+  * [apm.launch](launch/apm.launch) -- for use with APM flight stacks (e.g., all versions of ArduPlane, ArduCopter, etc)
+  * [test_compose.launch.py](launch/test_compose.launch.py) -- loads `mavros::router::Router` and one or two
+    `mavros::uas::UAS` nodes as composable nodes into a component container.
+
+`test_compose.launch.py` accepts:
+
+  - `fcu_url` (default `udp://0.0.0.0:14540@`) - FCU connection URL
+  - `gcs_url` (default `udp://127.0.0.1:14555@`) - GCS connection URL
+  - `executor` (default `mt`) - container executor: `mt`, `events`, or `auto`
+    (`events` on Lyrical+, `mt` otherwise). The events (Callback Group
+    Events) executor support inside a component container is still immature
+    upstream (ros2/rclcpp#3186), so the reliable `component_container_mt` is
+    the default.
+
+Example:
+
+    ros2 launch mavros test_compose.launch.py fcu_url:=udp://@192.168.60.192:15000 executor:=events
+
+Components can also be loaded/unloaded at runtime against a running
+container:
+
+    ros2 component load /mavros_container mavros mavros::router::Router
+    ros2 component load /mavros_container mavros mavros::uas::UAS
+    ros2 component unload /mavros_container <component_uid>
+
+Examples:
+
+    ros2 launch mavros px4.launch
+    ros2 launch mavros apm.launch fcu_url:=tcp://localhost gcs_url:=udp://@
+
+
+Installation
+------------
+
+Installation instructions (binary, source and container) are maintained in the
+[installation guide](https://mavros.readthedocs.io/en/latest/installation/) in
+the documentation.
+
+Troubleshooting
+------------
+
+### Error: serial0: receive: End of file
+This issue should have been solve in mavros v0.23.2, it was found to be a Boost.ASIO error and should be fix in release > v1.12.0 ( >Boost 1.66).
+
+
+Contributing
+------------
+See [CONTRIBUTING.md][contr].
+
+
+Glossary
+--------
+
+  - *GCS* — Ground Control Station
+  - *FCU* — Flight Control Unit (aka *FC*)
+  - *OBC* — OnBoard Computer (your odroid or raspberry)
+
+
+Links
+-----
+
+  - [MAVLink][ml] -- The communication protocol for Drones, used by flight controllers, ground control stations, and peripherals
+  - [mavlink\_ros][mlros] -- original ROS node (few messages, no proxy)
+  - [Pixhawk][pixhawk] -- Open Standards for drone hardware
+  - [PX4 Autopilot][px4] -- Flight Controller with support for most vehicle types and hardened/tested MAVROS support
+  - [ArduPilot][apm] -- tested autopilot APM:Plane (default command set)
+  - [QGroundControl][qgc] -- Ground Control Station for MAVLink autopilots, with tested support for Android, iOS, Mac OS, Linux, and Windows
+  - [mavros\_extras][mrext] -- extra plugins & node for mavros
+
+
+[qgc]: https://qgroundcontrol.com/
+[pixhawk]: https://pixhawk.org/
+[px4]: https://px4.io/
+[apm]: https://ardupilot.com/
+[mlros]: https://github.com/mavlink/mavlink_ros
+[ml]: https://mavlink.io/en/
+[mlgbp]: https://github.com/mavlink/mavlink-gbp-release
+[iss49]: https://github.com/mavlink/mavros/issues/49
+[iss216]: https://github.com/mavlink/mavros/issues/216
+[iss317]: https://github.com/mavlink/mavros/issues/317
+[iss319]: https://github.com/mavlink/mavros/issues/319
+[iss321]: https://github.com/mavlink/mavros/issues/321
+[iss473]: https://github.com/mavlink/mavros/issues/473
+[mrext]: https://github.com/mavlink/mavros/tree/master/mavros_extras
+[iss473rfc]: https://docs.google.com/document/d/1bDhaozrUu9F915T58WGzZeOM-McyU20dwxX-NRum1KA/edit
+[iss473table]: https://docs.google.com/spreadsheets/d/1LnsWTblU92J5_SMinTvBvHJWx6sqvzFa8SKbn8TXlnU/edit#gid=0
+[geolib]: https://geographiclib.sourceforge.io/
+[contr]: https://github.com/mavlink/mavros/blob/master/CONTRIBUTING.md
