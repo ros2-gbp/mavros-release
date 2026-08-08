@@ -44,7 +44,10 @@ public:
   : Plugin(uas_, "mag_calibration")
   {
     // TODO(vooon): use QoS for "latched" topics
+
+    //! Publish magnetometer calibration progress from MAVLink MAG_CAL_PROGRESS.
     mcs_pub = node->create_publisher<std_msgs::msg::UInt8>("~/status", 2);
+    //! Publish magnetometer calibration report from MAVLink MAG_CAL_REPORT.
     mcr_pub = node->create_publisher<mavros_msgs::msg::MagnetometerReporter>("~/report", 2);
   }
 
@@ -74,7 +77,7 @@ private:
     // How many compasses are we calibrating?
     std::bitset<8> compass_calibrating = mp.cal_mask;
 
-    if (compass_calibrating[mp.compass_id]) {
+    if (mp.compass_id < calibration_show.size() && compass_calibrating[mp.compass_id]) {
       // Each compass gets a portion of the overall progress
       if (mp.completion_pct < 95) {
         calibration_show[mp.compass_id] = true;
@@ -90,7 +93,7 @@ private:
       }
     }
 
-    mcs.data = total_percentage / compass_calibrating.count();
+    mcs.data = compass_calibrating.any() ? total_percentage / compass_calibrating.count() : 0;
 
     mcs_pub->publish(mcs);
   }
