@@ -69,7 +69,7 @@ public:
     uint8_t opcode;             ///< Command opcode
     uint8_t size;               ///< Size of data
     uint8_t req_opcode;         ///< Request opcode returned in kRspAck, kRspNak message
-    uint8_t padding[2];         ///< 32 bit aligment padding
+    uint8_t padding[2];         ///< 32 bit alignment padding
     uint32_t offset;            ///< Offsets for List and Read commands
   };
 
@@ -244,6 +244,9 @@ public:
 /**
  * @brief FTP plugin.
  * @plugin ftp
+ *
+ * Implements the
+ * [MAVLink File Transfer Protocol](https://mavlink.io/en/services/ftp.html).
  */
 class FTPPlugin : public plugin::Plugin
 {
@@ -269,50 +272,62 @@ public:
     FTPRequest r;
     rcpputils::assert_true((r.payload.size() - sizeof(FTPRequest::PayloadHeader)) == r.DATA_MAXSZ);
 
+    //! List the contents of a directory on the FCU (FTP).
     list_srv =
       node->create_service<mavros_msgs::srv::FileList>(
       "~/list",
       std::bind(&FTPPlugin::list_cb, this, _1, _2));
+    //! Open a file on the FCU for reading or writing (FTP).
     open_srv =
       node->create_service<mavros_msgs::srv::FileOpen>(
       "~/open",
       std::bind(&FTPPlugin::open_cb, this, _1, _2));
+    //! Close an open file on the FCU (FTP).
     close_srv =
       node->create_service<mavros_msgs::srv::FileClose>(
       "~/close",
       std::bind(&FTPPlugin::close_cb, this, _1, _2));
+    //! Read data from an open file on the FCU (FTP).
     read_srv =
       node->create_service<mavros_msgs::srv::FileRead>(
       "~/read",
       std::bind(&FTPPlugin::read_cb, this, _1, _2));
+    //! Write data to an open file on the FCU (FTP).
     write_srv =
       node->create_service<mavros_msgs::srv::FileWrite>(
       "~/write",
       std::bind(&FTPPlugin::write_cb, this, _1, _2));
+    //! Create a directory on the FCU (FTP).
     mkdir_srv =
       node->create_service<mavros_msgs::srv::FileMakeDir>(
       "~/mkdir",
       std::bind(&FTPPlugin::mkdir_cb, this, _1, _2));
+    //! Remove a directory on the FCU (FTP).
     rmdir_srv =
       node->create_service<mavros_msgs::srv::FileRemoveDir>(
       "~/rmdir",
       std::bind(&FTPPlugin::rmdir_cb, this, _1, _2));
+    //! Remove a file on the FCU (FTP).
     remove_srv =
       node->create_service<mavros_msgs::srv::FileRemove>(
       "~/remove",
       std::bind(&FTPPlugin::remove_cb, this, _1, _2));
+    //! Truncate a file to a given length on the FCU (FTP).
     truncate_srv =
       node->create_service<mavros_msgs::srv::FileTruncate>(
       "~/truncate",
       std::bind(&FTPPlugin::truncate_cb, this, _1, _2));
+    //! Reset the FTP session on both sides (FTP).
     reset_srv =
       node->create_service<std_srvs::srv::Empty>(
       "~/reset",
       std::bind(&FTPPlugin::reset_cb, this, _1, _2));
+    //! Rename a file on the FCU (FTP).
     rename_srv =
       node->create_service<mavros_msgs::srv::FileRename>(
       "~/rename",
       std::bind(&FTPPlugin::rename_cb, this, _1, _2));
+    //! Calculate the CRC32 checksum of a file on the FCU (FTP).
     checksum_srv =
       node->create_service<mavros_msgs::srv::FileChecksum>(
       "~/checksum",
@@ -340,7 +355,7 @@ private:
   rclcpp::Service<std_srvs::srv::Empty>::SharedPtr reset_srv;
   rclcpp::Service<mavros_msgs::srv::FileChecksum>::SharedPtr checksum_srv;
 
-  //! This type used in servicies to store 'data' fileds.
+  //! This type used in services to store 'data' fields.
   typedef std::vector<uint8_t> V_FileData;
 
   enum class OP
@@ -595,7 +610,7 @@ private:
 
     read_buffer.insert(read_buffer.end(), req.data(), req.data() + bytes_to_copy);
 
-    if (bytes_to_copy == FTPRequest::DATA_MAXSZ) {
+    if (read_buffer.size() < read_size && hdr->size == FTPRequest::DATA_MAXSZ) {
       // Possibly more data
       read_offset += bytes_to_copy;
       send_read_command();
@@ -681,7 +696,7 @@ private:
     RCLCPP_DEBUG(get_logger(), "FTP:m: kCmdResetSessions");
     if (!session_file_map.empty()) {
       RCLCPP_WARN(
-        get_logger(), "FTP: Reset closes %zu sessons",
+        get_logger(), "FTP: Reset closes %zu sessions",
         session_file_map.size());
       session_file_map.clear();
     }
@@ -736,12 +751,15 @@ private:
 
   void send_read_command()
   {
-    // read operation always try read DATA_MAXSZ block (hdr->size ignored)
+    const auto bytes_to_read = std::min<size_t>(
+      read_size - read_buffer.size(),
+      FTPRequest::DATA_MAXSZ);
     RCLCPP_DEBUG_STREAM(
-      get_logger(), "FTP:m: kCmdReadFile: " << active_session << " off: " << read_offset);
+      get_logger(), "FTP:m: kCmdReadFile: " << active_session << " off: " << read_offset <<
+        " sz: " << bytes_to_read);
     FTPRequest req(FTPRequest::kCmdReadFile, active_session);
     req.header()->offset = read_offset;
-    req.header()->size = 0 /* FTPRequest::DATA_MAXSZ */;
+    req.header()->size = bytes_to_read;
     req.send(uas, last_send_seqnr);
   }
 
