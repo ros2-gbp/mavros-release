@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.10)
 project(libmavconn)
 
 # Default to C11
@@ -24,7 +24,7 @@ set(CMAKE_CXX_EXTENSIONS ON)
 
 find_package(ament_cmake REQUIRED)
 
-# add package modules path, not needed in dependend packages
+# add package modules path, not needed in dependent packages
 list(INSERT CMAKE_MODULE_PATH 0 "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Modules")
 
 ## System dependencies are found with CMake's conventions
@@ -92,7 +92,11 @@ install(DIRECTORY cmake
 
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
+  find_package(ament_cmake_pytest REQUIRED)
   find_package(ament_lint_auto REQUIRED)
+
+  # NOTE(vooon): i prefer black style, which uses double quotes
+  set(ament_cmake_flake8_CONFIG_FILE "./setup.cfg")
 
   # NOTE(vooon): Does not support our custom triple-license, tiered to make it to work.
   list(APPEND AMENT_LINT_AUTO_EXCLUDE ament_cmake_copyright)
@@ -108,6 +112,33 @@ if(BUILD_TESTING)
   target_link_libraries(test_mavconn
     mavconn
     console_bridge::console_bridge
+  )
+
+  find_package(ament_cmake_google_benchmark REQUIRED)
+  # Standalone transport pair benchmark (udp/tcp). Not registered as a CI test:
+  # the async close/shutdown race makes it intermittently hang under the test
+  # harness. Run manually to check for mavconn hot-path regressions:
+  #   build/libmavconn/mavconn-benchmark
+  ament_add_google_benchmark_executable(mavconn-benchmark test/test_mavconn_benchmark.cpp)
+  target_link_libraries(mavconn-benchmark
+    mavconn
+    console_bridge::console_bridge
+  )
+
+  # pymavlink-referenced byte-stream e2e test.
+  # Small ctypes shim over MAVConnUDP; the pytest skips cleanly when pymavlink
+  # (a pip package) is not installed, so CI/buildfarm stays green.
+  add_library(mavconn_e2e_shim SHARED test/e2e/mavconn_e2e_shim.cpp)
+  target_link_libraries(mavconn_e2e_shim
+    mavconn
+    console_bridge::console_bridge
+  )
+
+  ament_add_pytest_test(libmavconn_pymavlink_e2e test/e2e
+    ENV
+      MAVCONN_E2E_SHIM=$<TARGET_FILE:mavconn_e2e_shim>
+    APPEND_ENV
+      LD_LIBRARY_PATH=$<TARGET_FILE_DIR:mavconn_e2e_shim>
   )
 
 endif()
