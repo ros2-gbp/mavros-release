@@ -63,7 +63,7 @@ void MissionBase::handle_mission_item(
         wp_state));
     if (do_pull_after_gcs && reschedule_pull) {
       RCLCPP_DEBUG(get_logger(), "%s: reschedule pull", log_prefix);
-      schedule_pull(WP_TIMEOUT);
+      schedule_pull(mission_wp_timeout.to_chrono<std::chrono::nanoseconds>());
     }
   }
 }
@@ -103,7 +103,7 @@ void MissionBase::handle_mission_item_int(
         wp_state));
     if (do_pull_after_gcs && reschedule_pull) {
       RCLCPP_DEBUG(get_logger(), "%s: reschedule pull", log_prefix);
-      schedule_pull(WP_TIMEOUT);
+      schedule_pull(mission_wp_timeout.to_chrono<std::chrono::nanoseconds>());
     }
   }
 }
@@ -181,7 +181,7 @@ void MissionBase::handle_mission_request_int(
     restart_timeout_timer();
     if (mreq.seq < wp_end_id) {
       RCLCPP_DEBUG(
-        get_logger(), "%s: FCU reqested MISSION_ITEM_INT waypoint %d", log_prefix, mreq.seq);
+        get_logger(), "%s: FCU requested MISSION_ITEM_INT waypoint %d", log_prefix, mreq.seq);
       wp_state = WP::TXWPINT;
       wp_cur_id = mreq.seq;
       send_waypoint<MISSION_ITEM_INT>(wp_cur_id);
@@ -237,7 +237,7 @@ void MissionBase::handle_mission_count(
     if (do_pull_after_gcs) {
       RCLCPP_INFO(get_logger(), "%s: scheduling pull after GCS is done", log_prefix);
       reschedule_pull = true;
-      schedule_pull(RESCHEDULE_TIME);
+      schedule_pull(mission_reschedule_time.to_chrono<std::chrono::nanoseconds>());
     }
   }
 }

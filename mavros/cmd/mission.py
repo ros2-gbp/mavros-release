@@ -43,7 +43,7 @@ def wp(client):
     """Tool to manipulate missions on MAVLink device."""
     if no_prettytable:
         click.echo(
-            "Waring: 'show' action disabled. Please install python3-prettytable",
+            "Warning: 'show' action disabled. Please install python3-prettytable",
             err=True,
         )
 
@@ -245,7 +245,7 @@ def show(ctx, client, accessor, pull_flag, follow):
     "--end-index",
     type=int,
     default=0,
-    help="Waypoint end index for partial update " "(APM only, default: last element)",
+    help="Waypoint end index for partial update (APM only, default: last element)",
 )
 @click.option(
     "--no-mission", "-M", is_flag=True, default=False, help="Don't load mission points"
@@ -295,7 +295,7 @@ def load(
             fault_echo("Request failed. Check mavros logs")
 
         client.verbose_echo(
-            f"{fmt_accessor(accessor)}(s) transfered: {ret.wp_transfered}"
+            f"{fmt_accessor(accessor)}(s) transferred: {ret.wp_transfered}"
         )
 
     done_evt = threading.Event()
