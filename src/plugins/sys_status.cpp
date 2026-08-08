@@ -20,10 +20,13 @@
 #include <vector>
 #include <unordered_map>
 #include <memory>
+#include <mutex>
+#include <shared_mutex>
 #include <utility>
 
 #include "rcpputils/asserts.hpp"
 #include "mavros/mavros_uas.hpp"
+#include "mavros/qos.hpp"
 #include "mavros/plugin.hpp"
 #include "mavros/plugin_filter.hpp"
 
@@ -478,6 +481,9 @@ private:
  * @plugin sys_status
  *
  * Required by all plugins.
+ *
+ * Implements the
+ * [MAVLink Heartbeat/Connection Protocol](https://mavlink.io/en/services/heartbeat.html).
  */
 class SystemStatusPlugin : public plugin::Plugin
 {
@@ -501,6 +507,7 @@ public:
 
     enable_node_watch_parameters();
 
+    //! Connection timeout in seconds before the link is considered lost.
     node_declare_and_watch_parameter(
       "conn_timeout", 10.0, [&](const rclcpp::Parameter & p) {
         auto conn_timeout = rclcpp::Duration::from_seconds(p.as_double());
@@ -511,6 +518,7 @@ public:
           std::bind(&SystemStatusPlugin::timeout_cb, this));
       });
 
+    //! Minimum battery voltage per battery instance before a warning is raised.
     node_declare_and_watch_parameter(
       "min_voltage", std::vector<double>({10.0}), [&](const rclcpp::Parameter & p) {
         min_voltage = p.as_double_array();
@@ -519,6 +527,7 @@ public:
         }
       });
 
+    //! Disable publishing diagnostic updates.
     node_declare_and_watch_parameter(
       "disable_diag", false, [&](const rclcpp::Parameter & p) {
         disable_diag = p.as_bool();
@@ -539,12 +548,14 @@ public:
         }
       });
 
+    //! MAV type of the heartbeat sent by the GCS.
     node_declare_and_watch_parameter(
       "heartbeat_mav_type", utils::enum_to_name(
         conn_heartbeat_mav_type), [&](const rclcpp::Parameter & p) {
         conn_heartbeat_mav_type = utils::mav_type_from_str(p.as_string());
       });
 
+    //! Rate (Hz) at which the GCS heartbeat is sent to the FCU.
     node_declare_and_watch_parameter(
       "heartbeat_rate", 1.0, [&](const rclcpp::Parameter & p) {
         auto rate_d = p.as_double();
@@ -568,21 +579,29 @@ public:
     auto state_qos = rclcpp::QoS(10).transient_local();
     auto sensor_qos = rclcpp::SensorDataQoS();
 
+    //! Publish connection, armed and mode state (HEARTBEAT).
     state_pub = node->create_publisher<mavros_msgs::msg::State>(
-      "state", state_qos);
+      "state", state_qos, mavros::NonIntraProcessPublisherOptions());
+    //! Publish VTOL and landed state (EXTENDED_SYS_STATE).
     extended_state_pub = node->create_publisher<mavros_msgs::msg::ExtendedState>(
-      "extended_state", state_qos);
+      "extended_state", state_qos, mavros::NonIntraProcessPublisherOptions());
+    //! Publish system and battery status (SYS_STATUS).
     sys_status_pub = node->create_publisher<mavros_msgs::msg::SysStatus>(
-      "sys_status", state_qos);
+      "sys_status", state_qos, mavros::NonIntraProcessPublisherOptions());
+    //! Publish estimator status flags (ESTIMATOR_STATUS).
     estimator_status_pub = node->create_publisher<mavros_msgs::msg::EstimatorStatus>(
-      "estimator_status", state_qos);
+      "estimator_status", state_qos, mavros::NonIntraProcessPublisherOptions());
+    //! Publish battery state (BATTERY_STATUS).
     batt_pub = node->create_publisher<BatteryMsg>("battery", sensor_qos);
 
+    //! Publish status text received from the FCU (STATUSTEXT).
     statustext_pub = node->create_publisher<mavros_msgs::msg::StatusText>(
       "statustext/recv", sensor_qos);
+    //! Send status text to the FCU (STATUSTEXT).
     statustext_sub = node->create_subscription<mavros_msgs::msg::StatusText>(
       "statustext/send", sensor_qos,
       std::bind(&SystemStatusPlugin::statustext_cb, this, _1));
+    //! Publish status events received from the FCU (EVENT).
     statusevent_pub = node->create_publisher<mavros_msgs::msg::StatusEvent>(
       "status_event", sensor_qos);
 
@@ -594,21 +613,25 @@ public:
     auto services_qos = rclcpp::ServicesQoS();
 #endif
 
+    //! Change the flight mode (MAV_CMD_DO_SET_MODE / SET_MODE).
     mode_srv = node->create_service<mavros_msgs::srv::SetMode>(
       "set_mode",
       std::bind(
         &SystemStatusPlugin::set_mode_cb, this, _1,
         _2), services_qos, srv_cg);
+    //! Set the stream rate of a MAVLink message (REQUEST_DATA_STREAM).
     stream_rate_srv = node->create_service<mavros_msgs::srv::StreamRate>(
       "set_stream_rate",
       std::bind(
         &SystemStatusPlugin::set_rate_cb, this, _1,
         _2), services_qos, srv_cg);
+    //! Set the interval of a MAVLink message (MAV_CMD_SET_MESSAGE_INTERVAL).
     message_interval_srv = node->create_service<mavros_msgs::srv::MessageInterval>(
       "set_message_interval",
       std::bind(
         &SystemStatusPlugin::set_message_interval_cb, this, _1,
         _2), services_qos, srv_cg);
+    //! Query information about the FCU and connected vehicles.
     vehicle_info_get_srv = node->create_service<mavros_msgs::srv::VehicleInfoGet>(
       "vehicle_info_get", std::bind(
         &SystemStatusPlugin::vehicle_info_get_cb, this, _1,
@@ -678,6 +701,7 @@ private:
 
   using M_VehicleInfo = std::unordered_map<uint16_t, mavros_msgs::msg::VehicleInfo>;
   M_VehicleInfo vehicles;
+  mutable std::shared_mutex vehicles_mutex;
 
   /* -*- mid-level helpers -*- */
 
@@ -687,8 +711,8 @@ private:
     return sysid << 8 | compid;
   }
 
-  // Find or create vehicle info
-  inline M_VehicleInfo::iterator find_or_create_vehicle_info(uint8_t sysid, uint8_t compid)
+  // Caller must hold vehicles_mutex exclusively.
+  inline M_VehicleInfo::iterator find_or_create_vehicle_info_unlocked(uint8_t sysid, uint8_t compid)
   {
     auto key = get_vehicle_key(sysid, compid);
     M_VehicleInfo::iterator ret = vehicles.find(key);
@@ -899,26 +923,28 @@ private:
 
     // XXX(vooon): i assume that UAS not interested in HBs from non-target system.
 
-    // Store generic info of all heartbeats seen
-    auto it = find_or_create_vehicle_info(msg->sysid, msg->compid);
-
     auto vehicle_mode = uas->str_mode_v10(hb.base_mode, hb.custom_mode);
     auto stamp = node->now();
 
-    // Update vehicle data
-    it->second.header.stamp = stamp;
-    it->second.available_info |= mavros_msgs::msg::VehicleInfo::HAVE_INFO_HEARTBEAT;
-    it->second.autopilot = hb.autopilot;
-    it->second.type = hb.type;
-    it->second.system_status = hb.system_status;
-    it->second.base_mode = hb.base_mode;
-    it->second.custom_mode = hb.custom_mode;
-    it->second.mode = vehicle_mode;
+    {
+      std::unique_lock<std::shared_mutex> lock(vehicles_mutex);
+      auto it = find_or_create_vehicle_info_unlocked(msg->sysid, msg->compid);
 
-    if (!(hb.base_mode & enum_value(MAV_MODE_FLAG::CUSTOM_MODE_ENABLED))) {
-      it->second.mode_id = hb.base_mode;
-    } else {
-      it->second.mode_id = hb.custom_mode;
+      // Update vehicle data
+      it->second.header.stamp = stamp;
+      it->second.available_info |= mavros_msgs::msg::VehicleInfo::HAVE_INFO_HEARTBEAT;
+      it->second.autopilot = hb.autopilot;
+      it->second.type = hb.type;
+      it->second.system_status = hb.system_status;
+      it->second.base_mode = hb.base_mode;
+      it->second.custom_mode = hb.custom_mode;
+      it->second.mode = vehicle_mode;
+
+      if (!(hb.base_mode & enum_value(MAV_MODE_FLAG::CUSTOM_MODE_ENABLED))) {
+        it->second.mode_id = hb.base_mode;
+      } else {
+        it->second.mode_id = hb.custom_mode;
+      }
     }
 
     // Continue from here only if vehicle is my target
@@ -1094,21 +1120,26 @@ private:
       process_autopilot_version_normal(apv, msg->sysid, msg->compid);
     }
 
-    // Store generic info of all autopilot seen
-    auto it = find_or_create_vehicle_info(msg->sysid, msg->compid);
+    auto stamp = node->now();
+    auto flight_custom_version = custom_version_to_hex_string(apv.flight_custom_version);
 
-    // Update vehicle data
-    it->second.header.stamp = node->now();
-    it->second.available_info |= mavros_msgs::msg::VehicleInfo::HAVE_INFO_AUTOPILOT_VERSION;
-    it->second.capabilities = apv.capabilities;
-    it->second.flight_sw_version = apv.flight_sw_version;
-    it->second.middleware_sw_version = apv.middleware_sw_version;
-    it->second.os_sw_version = apv.os_sw_version;
-    it->second.board_version = apv.board_version;
-    it->second.flight_custom_version = custom_version_to_hex_string(apv.flight_custom_version);
-    it->second.vendor_id = apv.vendor_id;
-    it->second.product_id = apv.product_id;
-    it->second.uid = apv.uid;
+    {
+      std::unique_lock<std::shared_mutex> lock(vehicles_mutex);
+      auto it = find_or_create_vehicle_info_unlocked(msg->sysid, msg->compid);
+
+      // Update vehicle data
+      it->second.header.stamp = stamp;
+      it->second.available_info |= mavros_msgs::msg::VehicleInfo::HAVE_INFO_AUTOPILOT_VERSION;
+      it->second.capabilities = apv.capabilities;
+      it->second.flight_sw_version = apv.flight_sw_version;
+      it->second.middleware_sw_version = apv.middleware_sw_version;
+      it->second.os_sw_version = apv.os_sw_version;
+      it->second.board_version = apv.board_version;
+      it->second.flight_custom_version = flight_custom_version;
+      it->second.vendor_id = apv.vendor_id;
+      it->second.product_id = apv.product_id;
+      it->second.uid = apv.uid;
+    }
   }
 
   void handle_battery_status(
@@ -1311,9 +1342,11 @@ private:
 
       auto cmdrq = std::make_shared<mavros_msgs::srv::CommandLong::Request>();
       cmdrq->broadcast = do_broadcast;
-      cmdrq->command = enum_value(MAV_CMD::REQUEST_AUTOPILOT_CAPABILITIES);
+      cmdrq->command = enum_value(MAV_CMD::REQUEST_MESSAGE);
       cmdrq->confirmation = false;
-      cmdrq->param1 = 1.0;
+      // Request a single AUTOPILOT_VERSION message from the target system.
+      cmdrq->param1 = mavlink::standard::msg::AUTOPILOT_VERSION::MSG_ID;
+      cmdrq->param7 = 1.0;
 
       RCLCPP_DEBUG(
         lg, "VER: Sending %s request.",
@@ -1378,6 +1411,7 @@ private:
       publish_disconnection();
 
       // Clear known vehicles
+      std::unique_lock<std::shared_mutex> lock(vehicles_mutex);
       vehicles.clear();
     }
   }
@@ -1506,7 +1540,10 @@ private:
     mavros_msgs::srv::VehicleInfoGet::Response::SharedPtr res)
   {
     if (req->get_all) {
+      std::shared_lock<std::shared_mutex> lock(vehicles_mutex);
+
       // Send all vehicles
+      res->vehicles.reserve(vehicles.size());
       for (const auto & got : vehicles) {
         res->vehicles.emplace_back(got.second);
       }
@@ -1525,6 +1562,7 @@ private:
     }
 
     uint16_t key = get_vehicle_key(req_sysid, req_compid);
+    std::shared_lock<std::shared_mutex> lock(vehicles_mutex);
     auto it = vehicles.find(key);
     if (it == vehicles.end()) {
       // Vehicle not found
