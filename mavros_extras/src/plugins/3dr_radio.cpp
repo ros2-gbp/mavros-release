@@ -60,6 +60,7 @@ public:
   {
     enable_node_watch_parameters();
 
+    //! Low RSSI threshold for diagnostics [dB].
     node_declare_and_watch_parameter(
       "low_rssi", 40, [&](const rclcpp::Parameter & p) {
         low_rssi = p.as_int();
@@ -67,6 +68,7 @@ public:
 
     auto sensor_qos = rclcpp::SensorDataQoS();
 
+    //! Publish radio status from MAVLink RADIO_STATUS/RADIO.
     status_pub = node->create_publisher<mavros_msgs::msg::RadioStatus>("radio_status", sensor_qos);
 
     enable_connection_cb();
@@ -173,8 +175,8 @@ private:
     stat.addf("Remote RSSI", "%u", last_status->remrssi);
     stat.addf("Remote RSSI (dBm)", "%.1f", last_status->remrssi_dbm);
     stat.addf("Tx buffer (%)", "%u", last_status->txbuf);
-    stat.addf("Noice level", "%u", last_status->noise);
-    stat.addf("Remote noice level", "%u", last_status->remnoise);
+    stat.addf("Noise level", "%u", last_status->noise);
+    stat.addf("Remote noise level", "%u", last_status->remnoise);
     stat.addf("Rx errors", "%u", last_status->rxerrors);
     stat.addf("Fixed", "%u", last_status->fixed);
   }
