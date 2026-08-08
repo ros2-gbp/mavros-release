@@ -31,6 +31,8 @@ using plugin::Plugin;
 using plugin::PluginFactory;
 using utils::enum_value;
 
+static bool pattern_match(const std::string & pattern, const std::string & pl_name);
+
 UAS::UAS(
   const rclcpp::NodeOptions & options_,
   const std::string & name_,
@@ -41,8 +43,15 @@ UAS::UAS(
   data(),
   tf2_buffer(get_clock(), tf2::Duration(tf2::BUFFER_CORE_DEFAULT_CACHE_TIME)),
   tf2_listener(tf2_buffer, true),
+#ifdef USE_OLD_TF2_ROS
   tf2_broadcaster(this),
   tf2_static_broadcaster(this),
+#else
+  // tf2_ros >= Iron removed/deprecated the NodeT constructor; pass the node
+  // via the NodeInterfaces aggregate so it builds on Rolling/Lyrical/Kilted/Jazzy.
+  tf2_broadcaster(*this),
+  tf2_static_broadcaster(*this),
+#endif
   source_system(target_system_),
   source_component(MAV_COMP_ID_ONBOARD_COMPUTER),
   target_system(target_system_),
@@ -90,7 +99,7 @@ UAS::UAS(
       startup_delay_timer->cancel();
 
       std::string fcu_protocol;
-      int tgt_system, tgt_component;
+      int tgt_system = 0, tgt_component = 0;
       this->get_parameter("uas_url", uas_url);
       this->get_parameter("fcu_protocol", fcu_protocol);
       this->get_parameter("system_id", source_system);
@@ -117,7 +126,9 @@ UAS::UAS(
           }),
         [this](std::thread * t) {
           this->exec.cancel();
-          t->join();
+          if (t->joinable()) {
+            t->join();
+          }
           delete t;
         });
 
@@ -152,7 +163,35 @@ UAS::UAS(
         plugin_denylist.emplace_back("*");
       }
 
-      for (auto & name : plugin_factory_loader.getDeclaredClasses()) {
+      const auto declared_plugins = plugin_factory_loader.getDeclaredClasses();
+      const auto warn_unmatched_plugin_patterns =
+      [this, &declared_plugins](
+        const StrV & patterns,
+        const std::string & parameter_name)
+      {
+        for (auto & pattern : patterns) {
+          bool matched = false;
+
+          for (auto & plugin : declared_plugins) {
+            if (pattern_match(pattern, plugin)) {
+              matched = true;
+              break;
+            }
+          }
+
+          if (!matched) {
+            RCLCPP_WARN(
+              get_logger(),
+              "%s pattern '%s' does not match any declared plugin",
+              parameter_name.c_str(), pattern.c_str());
+          }
+        }
+      };
+
+      warn_unmatched_plugin_patterns(plugin_allowlist, "plugin_allowlist");
+      warn_unmatched_plugin_patterns(plugin_denylist, "plugin_denylist");
+
+      for (auto & name : declared_plugins) {
         add_plugin(name);
       }
 
@@ -177,6 +216,12 @@ UAS::UAS(
         source_system, source_component,
         target_system, target_component);
     });
+}
+
+UAS::~UAS()
+{
+  // Stop the executor before plugin nodes and subscriptions begin tearing down.
+  exec_spin_thd.reset();
 }
 
 void UAS::plugin_route(const mavlink_message_t * mmsg, const Framing framing)
@@ -242,7 +287,7 @@ plugin::Plugin::SharedPtr UAS::create_plugin_instance(const std::string & pl_nam
   auto plugin_factory = plugin_factory_loader.createSharedInstance(pl_name);
 
   return
-    plugin_factory->create_plugin_instance(std::static_pointer_cast<UAS>(shared_from_this()));
+    plugin_factory->create_plugin_instance(this);
 }
 
 void UAS::add_plugin(const std::string & pl_name)
@@ -384,14 +429,16 @@ void UAS::send_message(const mavlink::Message & obj, const uint8_t src_compid)
     &msg, source_system, src_compid, &mavlink_status, mi.min_length, mi.length,
     mi.crc_extra);
 
-  mavros_msgs::msg::Mavlink rmsg{};
-  auto ok = mavros_msgs::mavlink::convert(msg, rmsg);
+  // NOTE(vooon): unique_ptr publish so intra-process subscribers (the router)
+  // get the buffer without a copy.
+  auto rmsg = std::make_unique<mavros_msgs::msg::Mavlink>();
+  auto ok = mavros_msgs::mavlink::convert(msg, *rmsg);
 
-  rmsg.header.stamp = this->now();
-  rmsg.header.frame_id = this->get_name();
+  rmsg->header.stamp = this->now();
+  rmsg->header.frame_id = this->get_name();
 
   if (this->sink && ok) {
-    this->sink->publish(rmsg);
+    this->sink->publish(std::move(rmsg));
   }
 }
 
