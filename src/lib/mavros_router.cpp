@@ -11,20 +11,32 @@
  * @author Vladimir Ermakov <vooon341@gmail.com>
  */
 
+#include <algorithm>
 #include <memory>
 #include <vector>
 #include <string>
 #include <set>
 #include <utility>
 
+#include "mavros/inline_vector.hpp"
 #include "mavros/mavros_router.hpp"
 #include "rcpputils/asserts.hpp"
 
 using namespace mavros::router;  // NOLINT
 using rclcpp::QoS;
 
-using unique_lock = std::unique_lock<std::shared_timed_mutex>;
-using shared_lock = std::shared_lock<std::shared_timed_mutex>;
+using unique_lock = std::unique_lock<std::shared_mutex>;
+using shared_lock = std::shared_lock<std::shared_mutex>;
+
+namespace
+{
+// Routing targets are bounded by the endpoint count (>> the MAVLink 255-system
+// limit), and typically there are only a few, so an inline buffer avoids a heap
+// allocation per routed message.
+constexpr size_t kMaxRoutingTargets = 32;
+using TargetList = mavros::utils::InlineVector<
+  mavros::router::Endpoint::SharedPtr, kMaxRoutingTargets>;
+}   // namespace
 
 std::atomic<id_t> Router::id_counter {1000};
 
@@ -37,11 +49,10 @@ void Router::route_message(
   Endpoint::SharedPtr src, const mavlink_message_t * msg,
   const Framing framing)
 {
-  shared_lock lock(mu);
   this->stat_msg_routed++;
 
   // find message destination target
-  addr_t target_addr = 0;
+  addr_t target_addr = 0x0000;
   auto msg_entry = ::mavlink::mavlink_get_msg_entry(msg->msgid);
   if (msg_entry) {
     if (msg_entry->flags & MAV_MSG_ENTRY_FLAG_HAVE_TARGET_SYSTEM) {
@@ -52,35 +63,60 @@ void Router::route_message(
     }
   }
 
-  size_t sent_cnt = 0, retry_cnt = 0;
-retry:
-  for (auto & kv : this->endpoints) {
-    auto & dest = kv.second;
-
-    if (src->id == dest->id) {
-      continue;     // do not echo message
-    }
-    if (src->link_type == dest->link_type) {
-      continue;     // drop messages between same type FCU/GCS/UAS
-    }
-
-    // NOTE(vooon): current router do not allow to speak drone-to-drone.
-    //              if it is needed perhaps better to add mavlink-router in front of mavros-router.
-
-    bool has_target = dest->remote_addrs.find(target_addr) != dest->remote_addrs.end();
-
-    if (has_target) {
-      dest->send_message(msg, framing, src->id);
-      sent_cnt++;
+  // Lazily rebuild the reverse index if the receive path flagged it stale.
+  // The flag is cleared only while holding index_mutex, so a thread cannot
+  // observe the flag as clear and read a stale/empty index: any reader that
+  // sees the flag raised waits on index_mutex until the rebuilding thread
+  // publishes the fresh map. The plain load keeps the hot (already-current)
+  // path a read-only cache hit with no lock.
+  if (remote_index_dirty.load(std::memory_order_acquire)) {
+    std::unique_lock<std::shared_mutex> index_lock(index_mutex);
+    if (remote_index_dirty.exchange(false)) {
+      rebuild_remote_index();
     }
   }
 
-  // if message haven't been sent retry broadcast it
-  if (sent_cnt == 0 && retry_cnt < 2) {
-    target_addr = 0;
-    retry_cnt++;
-    goto retry;
+  // Look up matches in the reverse index. Targeted matches win over broadcast;
+  // if an addressed message matched nothing, fall back to the broadcast set.
+  // The broadcast lookup is only done when actually needed.
+  auto collect_from = [&](addr_t addr, TargetList & out) {
+      auto it = remote_index.find(addr);
+      if (it == remote_index.end()) {
+        return;
+      }
+      for (const auto & dest : it->second) {
+        if (src->id == dest->id) {
+          continue;     // do not echo message
+        }
+        if (src->link_type == dest->link_type) {
+          continue;     // drop messages between same type FCU/GCS/UAS
+        }
+        out.push_back(dest);
+      }
+    };
+
+  TargetList targets;
+  bool targeted_hit = false;
+  {
+    std::shared_lock<std::shared_mutex> index_lock(index_mutex);
+
+    if (target_addr == 0x0000) {
+      collect_from(0x0000, targets);
+    } else {
+      collect_from(target_addr, targets);
+      if (!targets.empty()) {
+        targeted_hit = true;
+      } else {
+        // targeted message matched nothing: retry as broadcast
+        collect_from(0x0000, targets);
+      }
+    }
+  }   // index_lock released; targets holds SharedPtrs so endpoints stay alive
+
+  for (const auto & dest : targets) {
+    dest->send_message(msg, framing, src->frame_id());
   }
+  const auto sent_cnt = targets.size();
 
   // update stats
   this->stat_msg_sent.fetch_add(sent_cnt);
@@ -90,11 +126,39 @@ retry:
     auto lg = get_logger();
     auto clock = get_clock();
 
+    // The effective routing target: targeted on hit, broadcast on fallback.
+    const addr_t log_addr = targeted_hit ? target_addr : 0x0000;
+
     RCLCPP_WARN_THROTTLE(
       lg,
       *clock, 10000, "Message dropped: msgid: %d, source: %d.%d, target: %d.%d", msg->msgid,
-      msg->sysid, msg->compid, target_addr >> 8,
-      target_addr & 0xff);
+      msg->sysid, msg->compid, log_addr >> 8,
+      log_addr & 0xff);
+  }
+}
+
+void Router::rebuild_remote_index()
+{
+  // Caller must hold a unique_lock on index_mutex. Lock order: index_mutex ->
+  // mu -> remote_addrs_mutex, matching add/del.
+  remote_index.clear();
+
+  std::shared_lock lock(mu);
+  for (const auto & kv : endpoints) {
+    const auto & ep = kv.second;
+    std::shared_lock ep_lock(ep->remote_addrs_mutex);
+    for (addr_t addr : ep->remote_addrs) {
+      remote_index[addr].push_back(ep);
+    }
+  }
+}
+
+void Router::remove_from_index(const Endpoint::SharedPtr & ep)
+{
+  // Caller must hold a unique_lock on index_mutex.
+  for (auto & kv : remote_index) {
+    auto & vec = kv.second;
+    vec.erase(std::remove(vec.begin(), vec.end(), ep), vec.end());
   }
 }
 
@@ -102,7 +166,6 @@ void Router::add_endpoint(
   const mavros_msgs::srv::EndpointAdd::Request::SharedPtr request,
   mavros_msgs::srv::EndpointAdd::Response::SharedPtr response)
 {
-  unique_lock lock(mu);
   auto lg = get_logger();
 
   RCLCPP_INFO(
@@ -129,12 +192,23 @@ void Router::add_endpoint(
   auto shared_this = shared_from_this();
 
   ep->parent = std::static_pointer_cast<Router>(shared_this);
-  ep->id = id;
+  ep->set_id(id);
   ep->link_type = static_cast<Endpoint::Type>(request->type);
   ep->url = request->url;
 
-  this->endpoints[id] = ep;
-  this->diagnostic_updater.add(ep->diag_name(), std::bind(&Endpoint::diag_run, ep, _1));
+  {
+    // Lock order: index_mutex -> mu (matches rebuild_remote_index).
+    std::unique_lock<std::shared_mutex> index_lock(index_mutex);
+    unique_lock lock(mu);
+    this->endpoints[id] = ep;
+    // New endpoint accepts broadcasts by default (Endpoint ctor seeded {0}).
+    remote_index[0x0000].push_back(ep);
+  }
+  this->diagnostic_updater.add(
+    ep->diag_name(),
+    [ep](diagnostic_updater::DiagnosticStatusWrapper & stat) {
+      ep->diag_run(stat);
+    });
   RCLCPP_INFO(lg, "Endpoint link[%d] created", id);
 
   auto result = ep->open();
@@ -153,17 +227,30 @@ void Router::del_endpoint(
   const mavros_msgs::srv::EndpointDel::Request::SharedPtr request,
   mavros_msgs::srv::EndpointDel::Response::SharedPtr response)
 {
-  unique_lock lock(mu);
   auto lg = get_logger();
+  Endpoint::SharedPtr endpoint_to_remove;
+  std::string endpoint_diag_name;
 
   if (request->id != 0) {
     RCLCPP_INFO(lg, "Requested to del endpoint id: %d", request->id);
-    auto it = this->endpoints.find(request->id);
-    if (it != this->endpoints.end() ) {
-      it->second->close();
-      this->diagnostic_updater.removeByName(it->second->diag_name());
-      this->endpoints.erase(it);
-      response->successful = true;
+    {
+      // Lock order: index_mutex -> mu (matches rebuild_remote_index). The
+      // endpoint must be dropped from the index before its SharedPtr is
+      // released so no route can dereference a dangling pointer.
+      std::unique_lock<std::shared_mutex> index_lock(index_mutex);
+      unique_lock lock(mu);
+      auto it = this->endpoints.find(request->id);
+      if (it != this->endpoints.end() ) {
+        endpoint_to_remove = it->second;
+        endpoint_diag_name = it->second->diag_name();
+        this->endpoints.erase(it);
+        this->remove_from_index(endpoint_to_remove);
+        response->successful = true;
+      }
+    }
+    if (endpoint_to_remove) {
+      endpoint_to_remove->close();
+      this->diagnostic_updater.removeByName(endpoint_diag_name);
     }
     return;
   }
@@ -171,16 +258,26 @@ void Router::del_endpoint(
   RCLCPP_INFO(
     lg, "Requested to del endpoint type: %d url: %s", request->type,
     request->url.c_str());
-  for (auto it = this->endpoints.cbegin(); it != this->endpoints.cend(); it++) {
-    if (it->second->url == request->url &&
-      it->second->link_type == static_cast<Endpoint::Type>( request->type))
-    {
-      it->second->close();
-      this->diagnostic_updater.removeByName(it->second->diag_name());
-      this->endpoints.erase(it);
-      response->successful = true;
-      return;
+  {
+    // Lock order: index_mutex -> mu (matches rebuild_remote_index).
+    std::unique_lock<std::shared_mutex> index_lock(index_mutex);
+    unique_lock lock(mu);
+    for (auto it = this->endpoints.cbegin(); it != this->endpoints.cend(); it++) {
+      if (it->second->url == request->url &&
+        it->second->link_type == static_cast<Endpoint::Type>(request->type))
+      {
+        endpoint_to_remove = it->second;
+        endpoint_diag_name = it->second->diag_name();
+        this->endpoints.erase(it);
+        this->remove_from_index(endpoint_to_remove);
+        response->successful = true;
+        break;
+      }
     }
+  }
+  if (endpoint_to_remove) {
+    endpoint_to_remove->close();
+    this->diagnostic_updater.removeByName(endpoint_diag_name);
   }
 }
 
@@ -297,21 +394,32 @@ void Router::periodic_clear_stale_remote_addrs()
   RCLCPP_DEBUG(lg, "clear stale remotes");
   for (auto & kv : this->endpoints) {
     auto & p = kv.second;
+    bool changed = false;
+    {
+      std::unique_lock<std::shared_mutex> endpoint_lock(p->remote_addrs_mutex);
 
-    // Step 1: remove any stale addrs that still there
-    //         (hadn't been removed by Endpoint::recv_message())
-    for (auto addr : p->stale_addrs) {
-      if (addr != 0) {
-        p->remote_addrs.erase(addr);
-        RCLCPP_INFO(
-          lg, "link[%d] removed stale remote address %d.%d", p->id, addr >> 8,
-          addr & 0xff);
+      // Step 1: remove any stale addrs that still there
+      //         (hadn't been removed by Endpoint::recv_message())
+      for (auto addr : p->stale_addrs) {
+        if (addr != 0x0000 && p->remote_addrs.erase(addr) != 0) {
+          changed = true;
+          RCLCPP_INFO(
+            lg, "link[%d] removed stale remote address %d.%d", p->id, addr >> 8,
+            addr & 0xff);
+        }
       }
+
+      // Step 2: re-initiate stale_addrs
+      p->stale_addrs.clear();
+      p->stale_addrs.insert(p->remote_addrs.begin(), p->remote_addrs.end());
     }
 
-    // Step 2: re-initiate stale_addrs
-    p->stale_addrs.clear();
-    p->stale_addrs.insert(p->remote_addrs.begin(), p->remote_addrs.end());
+    // Flag the reverse index for a rebuild only if the reachability set
+    // actually changed. This timer also acts as a self-healing net for any
+    // lost-update missed by the lazy route-side rebuild.
+    if (changed) {
+      remote_index_dirty.store(true, std::memory_order_relaxed);
+    }
   }
 }
 
@@ -342,16 +450,26 @@ void Endpoint::recv_message(const mavlink_message_t * msg, const Framing framing
   const addr_t sysid_addr = msg->sysid << 8;
   const addr_t sysid_compid_addr = (msg->sysid << 8) | msg->compid;
 
-  // save source addr to remote_addrs
-  auto sp = this->remote_addrs.emplace(sysid_addr);
-  auto scp = this->remote_addrs.emplace(sysid_compid_addr);
+  bool new_sysid_addr;
+  bool new_sysid_compid_addr;
+  {
+    std::unique_lock<std::shared_mutex> lock(this->remote_addrs_mutex);
 
-  // and delete it from stale_addrs
-  this->stale_addrs.erase(sysid_addr);
-  this->stale_addrs.erase(sysid_compid_addr);
+    // save source addr to remote_addrs
+    new_sysid_addr = this->remote_addrs.emplace(sysid_addr).second;
+    new_sysid_compid_addr = this->remote_addrs.emplace(sysid_compid_addr).second;
+
+    // and delete it from stale_addrs
+    this->stale_addrs.erase(sysid_addr);
+    this->stale_addrs.erase(sysid_compid_addr);
+  }
 
   auto & nh = this->parent;
-  if (sp.second || scp.second) {
+  if (new_sysid_addr || new_sysid_compid_addr) {
+    // A new remote was learned: flag the router's reverse index so the next
+    // routed message rebuilds. A relaxed store is enough -- the flag is just a
+    // gate; index_mutex provides the real synchronization on rebuild.
+    nh->remote_index_dirty.store(true, std::memory_order_relaxed);
     RCLCPP_INFO(
       nh->get_logger(), "link[%d] detected remote address %d.%d", this->id, msg->sysid,
       msg->compid);
@@ -376,11 +494,22 @@ bool MAVConnEndpoint::is_open()
 
 std::pair<bool, std::string> MAVConnEndpoint::open()
 {
+  auto nh = this->parent;
+  if (!nh) {
+    return {false, "parent not set"};
+  }
+
   try {
+    auto weak_self = weak_from_this();
     this->link = mavconn::MAVConnInterface::open_url(
-      this->url, 1, mavconn::MAV_COMP_ID_UDP_BRIDGE, std::bind(
-        &MAVConnEndpoint::recv_message,
-        shared_from_this(), _1, _2));
+      this->url, 1, mavconn::MAV_COMP_ID_UDP_BRIDGE,
+      [weak_self](const mavlink_message_t * msg, const Framing framing) {
+        if (auto self = weak_self.lock()) {
+          self->recv_message(msg, framing);
+        }
+      },
+      mavconn::MAVConnInterface::ClosedCb(),
+      nh->get_shared_io());
   } catch (mavconn::DeviceError & ex) {
     return {false, ex.what()};
   }
@@ -406,7 +535,7 @@ void MAVConnEndpoint::close()
 
 void MAVConnEndpoint::send_message(
   const mavlink_message_t * msg, const Framing framing,
-  id_t src_id [[maybe_unused]])
+  const std::string & from_frame_id [[maybe_unused]])
 {
   (void)framing;
 
@@ -439,15 +568,22 @@ void MAVConnEndpoint::diag_run(diagnostic_updater::DiagnosticStatusWrapper & sta
   stat.addf("Rx speed", "%f", iostat.rx_speed);
   stat.addf("Tx speed", "%f", iostat.tx_speed);
 
-  stat.addf("Remotes count", "%zu", this->remote_addrs.size());
+  std::set<addr_t> remote_addrs_copy;
+  {
+    std::shared_lock<std::shared_mutex> lock(this->remote_addrs_mutex);
+    remote_addrs_copy = this->remote_addrs;
+  }
+
+  stat.addf("Remotes count", "%zu", remote_addrs_copy.size());
+
   size_t idx = 0;
-  for (auto addr : this->remote_addrs) {
+  for (auto addr : remote_addrs_copy) {
     stat.addf(utils::format("Remote [%d]", idx++), "%d.%d", addr >> 8, addr & 0xff);
   }
 
   if (mav_status.packet_rx_drop_count > stat_last_drop_count) {
     stat.summaryf(
-      1, "%d packeges dropped since last report",
+      1, "%d packages dropped since last report",
       mav_status.packet_rx_drop_count - stat_last_drop_count);
   } else {
     stat.summary(0, "ok");
@@ -478,7 +614,9 @@ std::pair<bool, std::string> ROSEndpoint::open()
         "mavlink_source"), qos);
     this->sink = nh->create_subscription<mavros_msgs::msg::Mavlink>(
       utils::format("%s/%s", this->url.c_str(), "mavlink_sink"), qos,
-      std::bind(&ROSEndpoint::ros_recv_message, this, _1));
+      [this](const mavros_msgs::msg::Mavlink::SharedPtr rmsg) {
+        this->ros_recv_message(rmsg);
+      });
   } catch (rclcpp::exceptions::InvalidTopicNameError & ex) {
     return {false, ex.what()};
   }
@@ -492,23 +630,27 @@ void ROSEndpoint::close()
   this->sink.reset();
 }
 
-void ROSEndpoint::send_message(const mavlink_message_t * msg, const Framing framing, id_t src_id)
+void ROSEndpoint::send_message(
+  const mavlink_message_t * msg, const Framing framing,
+  const std::string & from_frame_id)
 {
   rcpputils::assert_true(msg, "msg not null");
 
-  auto rmsg = mavros_msgs::msg::Mavlink();
-  auto ok = mavros_msgs::mavlink::convert(*msg, rmsg, utils::enum_value(framing));
+  // NOTE(vooon): unique_ptr publish so intra-process subscribers (the UAS)
+  // get the buffer without a copy.
+  auto rmsg = std::make_unique<mavros_msgs::msg::Mavlink>();
+  auto ok = mavros_msgs::mavlink::convert(*msg, *rmsg, utils::enum_value(framing));
 
   // don't fail if endpoint closed
   if (!this->source) {
     return;
   }
 
-  rmsg.header.stamp = this->parent->now();
-  rmsg.header.frame_id = utils::format("ep:%d", src_id);
+  rmsg->header.stamp = this->parent->now();
+  rmsg->header.frame_id = from_frame_id;
 
   if (ok) {
-    this->source->publish(rmsg);
+    this->source->publish(std::move(rmsg));
   } else if (auto & nh = this->parent) {
     RCLCPP_ERROR(nh->get_logger(), "message conversion error");
   }
@@ -534,9 +676,16 @@ void ROSEndpoint::diag_run(diagnostic_updater::DiagnosticStatusWrapper & stat)
 {
   // TODO(vooon): make some diagnostics
 
-  stat.addf("Remotes count", "%zu", this->remote_addrs.size());
+  std::set<addr_t> remote_addrs_copy;
+  {
+    std::shared_lock<std::shared_mutex> lock(this->remote_addrs_mutex);
+    remote_addrs_copy = this->remote_addrs;
+  }
+
+  stat.addf("Remotes count", "%zu", remote_addrs_copy.size());
+
   size_t idx = 0;
-  for (auto addr : this->remote_addrs) {
+  for (auto addr : remote_addrs_copy) {
     stat.addf(utils::format("Remote [%d]", idx++), "%d.%d", addr >> 8, addr & 0xff);
   }
 

@@ -35,7 +35,8 @@ using namespace std::placeholders;      // NOLINT
  * @brief Setpoint acceleration/force plugin
  * @plugin setpoint_accel
  *
- * Send setpoint accelerations/forces to FCU controller.
+ * Send setpoint accelerations/forces to FCU controller. Uses the
+ * [MAVLink Offboard Control Protocol](https://mavlink.io/en/services/offboard_control.html).
  */
 class SetpointAccelerationPlugin : public plugin::Plugin,
   private plugin::SetPositionTargetLocalNEDMixin<SetpointAccelerationPlugin>
@@ -48,6 +49,7 @@ public:
 
     auto sensor_qos = rclcpp::SensorDataQoS();
 
+    //! Setpoint acceleration/force (SET_POSITION_TARGET_LOCAL_NED).
     accel_sub = node->create_subscription<geometry_msgs::msg::Vector3Stamped>(
       "~/accel", sensor_qos, std::bind(
         &SetpointAccelerationPlugin::accel_cb, this,
@@ -75,7 +77,7 @@ private:
   {
     using mavlink::common::MAV_FRAME;
 
-    bool send_force;
+    bool send_force = false;
     node->get_parameter("send_force", send_force);
 
     /* Documentation start from bit 1 instead 0.
