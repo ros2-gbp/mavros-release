@@ -21,10 +21,12 @@
 
 #include <atomic>
 #include <deque>
+#include <memory>
 #include <string>
 
 #include <asio.hpp>
 #include <mavconn/interface.hpp>
+#include <mavconn/io_context_runner.hpp>
 #include <mavconn/msgbuffer.hpp>
 
 namespace mavconn
@@ -45,10 +47,13 @@ public:
    *
    * @param[in] device    TTY device path
    * @param[in] baudrate  serial baudrate
+   * @param[in] shared_io optional external io_context. If provided, caller owns
+   *                      its execution/threading lifecycle.
    */
   MAVConnSerial(
     uint8_t system_id = 1, uint8_t component_id = MAV_COMP_ID_UDP_BRIDGE,
-    std::string device = DEFAULT_DEVICE, unsigned baudrate = DEFAULT_BAUDRATE, bool hwflow = false);
+    std::string device = DEFAULT_DEVICE, unsigned baudrate = DEFAULT_BAUDRATE,
+    bool hwflow = false, asio::io_context * shared_io = nullptr);
   virtual ~MAVConnSerial();
 
   void connect(
@@ -60,20 +65,20 @@ public:
   void send_message(const mavlink::Message & message, const uint8_t source_compid) override;
   void send_bytes(const uint8_t * bytes, size_t length) override;
 
-  inline bool is_open() override
+  [[nodiscard]] inline bool is_open() override
   {
     return serial_dev.is_open();
   }
 
 private:
-  asio::io_service io_service;
-  std::thread io_thread;
+  IoContextRunner io_runner;
+  asio::io_context & io_context;
   asio::serial_port serial_dev;
 
   std::atomic<bool> tx_in_progress;
   std::deque<MsgBuffer> tx_q;
   std::array<uint8_t, MsgBuffer::MAX_SIZE> rx_buf;
-  std::recursive_mutex mutex;
+  std::mutex mutex;
 
   void do_read();
   void do_write(bool check_tx_state);
