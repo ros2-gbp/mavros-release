@@ -161,7 +161,7 @@ private:
    * @brief Send hil_state_quaternion to FCU.
    * Message specification: @p https://mavlink.io/en/messages/common.html#HIL_STATE_QUATERNION
    */
-  void state_quat_cb(const mavros_msgs::msg::HilStateQuaternion::SharedPtr req)
+  void state_quat_cb(const mavros_msgs::msg::HilStateQuaternion::ConstSharedPtr req)
   {
     mavlink::common::msg::HIL_STATE_QUATERNION state_quat = {};
 
@@ -214,7 +214,7 @@ private:
    * @brief Send hil_gps to FCU.
    * Message specification: @p https://mavlink.io/en/messages/common.html#HIL_GPS
    */
-  void gps_cb(const mavros_msgs::msg::HilGPS::SharedPtr req)
+  void gps_cb(const mavros_msgs::msg::HilGPS::ConstSharedPtr req)
   {
     mavlink::common::msg::HIL_GPS gps = {};
 
@@ -228,18 +228,21 @@ private:
     gps.alt = req->geo.altitude * 1E3;
     // [[[cog:
     // for f in (
-    //     'eph', 'epv', 'vel', 'vn', 've', 'vd', 'cog'):
-    //     cog.outl(f"gps.{f} = req->{f} * 1E2;")
+    //     'eph', 'epv', 'vel', 'vn', 've', 'vd', 'cog',
+    //     'satellites_visible', 'id', 'yaw'):
+    //     cog.outl(f"gps.{f} = req->{f};")
     // ]]]
-    gps.eph = req->eph * 1E2;
-    gps.epv = req->epv * 1E2;
-    gps.vel = req->vel * 1E2;
-    gps.vn = req->vn * 1E2;
-    gps.ve = req->ve * 1E2;
-    gps.vd = req->vd * 1E2;
-    gps.cog = req->cog * 1E2;
-    // [[[end]]] (sum: txtOM75FdG)
+    gps.eph = req->eph;
+    gps.epv = req->epv;
+    gps.vel = req->vel;
+    gps.vn = req->vn;
+    gps.ve = req->ve;
+    gps.vd = req->vd;
+    gps.cog = req->cog;
     gps.satellites_visible = req->satellites_visible;
+    gps.id = req->id;
+    gps.yaw = req->yaw;
+    // [[[end]]] (sum: 7jKMh3Vikx)
 
     uas->send_message(gps);
   }
@@ -248,7 +251,7 @@ private:
    * @brief Send hil_sensor to FCU.
    * Message specification: @p https://mavlink.io/en/messages/common.html#HIL_SENSOR
    */
-  void sensor_cb(const mavros_msgs::msg::HilSensor::SharedPtr req)
+  void sensor_cb(const mavros_msgs::msg::HilSensor::ConstSharedPtr req)
   {
     mavlink::common::msg::HIL_SENSOR sensor = {};
 
@@ -295,7 +298,7 @@ private:
    * @brief Send simulated optical flow to FCU.
    * Message specification: @p https://mavlink.io/en/messages/common.html#HIL_OPTICAL_FLOW
    */
-  void optical_flow_cb(const mavros_msgs::msg::OpticalFlowRad::SharedPtr req)
+  void optical_flow_cb(const mavros_msgs::msg::OpticalFlowRad::ConstSharedPtr req)
   {
     mavlink::common::msg::HIL_OPTICAL_FLOW of = {};
 
@@ -339,7 +342,7 @@ private:
    * @brief Send simulated received RAW values of the RC channels to the FCU.
    * Message specification: @p https://mavlink.io/en/messages/common.html#HIL_RC_INPUTS_RAW
    */
-  void rcin_raw_cb(const mavros_msgs::msg::RCIn::SharedPtr req)
+  void rcin_raw_cb(const mavros_msgs::msg::RCIn::ConstSharedPtr req)
   {
     mavlink::common::msg::HIL_RC_INPUTS_RAW rcin {};
 
