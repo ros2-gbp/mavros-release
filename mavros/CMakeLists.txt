@@ -95,13 +95,6 @@ if(message_filters_VERSION VERSION_LESS 5.0.0)
   )
 endif()
 
-if(rclcpp_VERSION VERSION_GREATER_EQUAL 30.0.0)
-  # Lyrical and newer: Callback Group Events executor (EventsCBGExecutor)
-  add_definitions(
-    -DMAVROS_HAVE_EVENTS_CBG_EXECUTOR
-  )
-endif()
-
 # [[[cog:
 # import mavros_cog
 # ]]]
@@ -332,8 +325,25 @@ if(BUILD_TESTING)
     ${mavros_msgs_TARGETS}
   )
 
+  ament_add_gtest(mavros-plugin-setpoint-trajectory test/test_setpoint_trajectory.cpp)
+  target_link_libraries(mavros-plugin-setpoint-trajectory
+    mavros ${nav_msgs_TARGETS} ${std_srvs_TARGETS} ${trajectory_msgs_TARGETS}
+  )
+
   ament_add_gtest(mavros-plugin-command test/test_command.cpp)
   target_link_libraries(mavros-plugin-command
+    mavros
+    ${mavros_msgs_TARGETS}
+  )
+
+  ament_add_gtest(mavros-plugin-sys-status test/test_sys_status.cpp)
+  target_link_libraries(mavros-plugin-sys-status
+    mavros
+    ${mavros_msgs_TARGETS}
+  )
+
+  ament_add_gtest(mavros-plugin-sys-time test/test_sys_time.cpp)
+  target_link_libraries(mavros-plugin-sys-time
     mavros
     ${mavros_msgs_TARGETS}
   )
@@ -346,6 +356,14 @@ if(BUILD_TESTING)
   )
   target_compile_definitions(mavros-plugin-params-test PRIVATE
     TEST_PLUGIN_PARAMS_YAML="${CMAKE_CURRENT_SOURCE_DIR}/test/test_plugin_params.yaml"
+  )
+
+  # Regression test for #2323: FTP plugin alignment-safe header and data accessors.
+  ament_add_gtest(mavros-ftp-test test/test_ftp.cpp)
+  target_link_libraries(mavros-ftp-test
+    mavros
+    ${mavros_msgs_TARGETS}
+    ${std_srvs_TARGETS}
   )
 
   ament_add_pytest_test(mavros_py_test test/mavros_py
