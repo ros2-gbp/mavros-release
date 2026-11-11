@@ -290,7 +290,7 @@ public:
   // Move constructor, required to dynamically create an array of instances of this class
   // because it contains an unique mutex object
   BatteryStatusDiag(BatteryStatusDiag && other) noexcept
-  : diagnostic_updater::DiagnosticTask(""),
+  : diagnostic_updater::DiagnosticTask(other.getName()),
     voltage(-1.0f),
     current(0.0f),
     remaining(0.0f),
@@ -304,7 +304,12 @@ public:
   BatteryStatusDiag & operator=(BatteryStatusDiag && other) noexcept
   {
     if (this != &other) {
-      *this = std::move(other);
+      std::scoped_lock lock(mutex, other.mutex);
+      voltage = other.voltage;
+      current = other.current;
+      remaining = other.remaining;
+      min_voltage = other.min_voltage;
+      cell_voltage = std::move(other.cell_voltage);
     }
     return *this;
   }
@@ -613,6 +618,14 @@ public:
     auto services_qos = rclcpp::ServicesQoS();
 #endif
 
+    // NOTE(spurnvoj): one long-lived client in its own group, so the reply is processed
+    // while a srv_cg callback waits for it (see ros2/rmw_zenoh#993).
+    cmd_cg = node->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+
+    //! Client to send MAVLink commands to the command plugin (cmd/command).
+    cmd_client = node->create_client<mavros_msgs::srv::CommandLong>(
+      "cmd/command", services_qos, cmd_cg);
+
     //! Change the flight mode (MAV_CMD_DO_SET_MODE / SET_MODE).
     mode_srv = node->create_service<mavros_msgs::srv::SetMode>(
       "set_mode",
@@ -686,6 +699,8 @@ private:
   rclcpp::Publisher<mavros_msgs::msg::StatusEvent>::SharedPtr statusevent_pub;
 
   rclcpp::CallbackGroup::SharedPtr srv_cg;
+  rclcpp::CallbackGroup::SharedPtr cmd_cg;
+  rclcpp::Client<mavros_msgs::srv::CommandLong>::SharedPtr cmd_client;
   rclcpp::Service<mavros_msgs::srv::StreamRate>::SharedPtr stream_rate_srv;
   rclcpp::Service<mavros_msgs::srv::MessageInterval>::SharedPtr message_interval_srv;
   rclcpp::Service<mavros_msgs::srv::SetMode>::SharedPtr mode_srv;
@@ -887,13 +902,13 @@ private:
     // APM uses custom version array[8] as a string
     log_info("%s: Capabilities         0x%016llx", apv.capabilities);
     log_info(
-      "%s: Flight software:     %08x (%*s)",
+      "%s: Flight software:     %08x (%.*s)",
       apv.flight_sw_version, 8, apv.flight_custom_version.data());
     log_info(
-      "%s: Middleware software: %08x (%*s)",
+      "%s: Middleware software: %08x (%.*s)",
       apv.middleware_sw_version, 8, apv.middleware_custom_version.data());
     log_info(
-      "%s: OS software:         %08x (%*s)",
+      "%s: OS software:         %08x (%.*s)",
       apv.os_sw_version, 8, apv.os_custom_version.data());
     log_info("%s: Board hardware:      %08x", apv.board_version);
     log_info("%s: VID/PID:             %04x:%04x", apv.vendor_id, apv.product_id);
@@ -1338,7 +1353,9 @@ private:
     bool do_broadcast = version_retries > RETRIES_COUNT / 2;
 
     try {
-      auto client = node->create_client<mavros_msgs::srv::CommandLong>("cmd/command");
+      if (!cmd_client->service_is_ready()) {
+        throw std::runtime_error("command plugin service not available");
+      }
 
       auto cmdrq = std::make_shared<mavros_msgs::srv::CommandLong::Request>();
       cmdrq->broadcast = do_broadcast;
@@ -1352,7 +1369,7 @@ private:
         lg, "VER: Sending %s request.",
         (do_broadcast) ? "broadcast" : "unicast");
 
-      auto future = client->async_send_request(cmdrq);
+      auto future = cmd_client->async_send_request(cmdrq);
       // NOTE(vooon): temporary hack from @Michel1968
       // See: https://github.com/mavlink/mavros/issues/1588#issuecomment-1027699924
       const auto future_status = future.wait_for(1s);
@@ -1360,6 +1377,7 @@ private:
         auto response = future.get();
         ret = response->success;
       } else {
+        cmd_client->remove_pending_request(future);
         RCLCPP_ERROR(lg, "VER: autopilot version service timeout");
       }
     } catch (std::exception & ex) {
@@ -1458,7 +1476,9 @@ private:
     auto lg = get_logger();
 
     try {
-      auto client = node->create_client<mavros_msgs::srv::CommandLong>("cmd/command");
+      if (!cmd_client->service_is_ready()) {
+        throw std::runtime_error("command plugin service not available");
+      }
 
       // calculate interval
       float interval_us;
@@ -1482,13 +1502,14 @@ private:
         "SYS: Request msgid %u at %f hz",
         req->message_id, req->message_rate);
 
-      auto future = client->async_send_request(cmdrq);
+      auto future = cmd_client->async_send_request(cmdrq);
       // NOTE(vooon): same hack as for VER
       const auto future_status = future.wait_for(1s);
       if (future_status == std::future_status::ready) {
         auto response = future.get();
         res->success = response->success;
       } else {
+        cmd_client->remove_pending_request(future);
         RCLCPP_ERROR(lg, "SYS: set_message_interval service timeout");
       }
     } catch (std::exception & ex) {
