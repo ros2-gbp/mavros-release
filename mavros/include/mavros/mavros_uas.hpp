@@ -358,6 +358,31 @@ public:
     return target_component;
   }
 
+  /**
+   * @brief Return our own system id (source of sent messages)
+   */
+  inline uint8_t get_system_id()
+  {
+    return source_system;
+  }
+
+  /**
+   * @brief Return our own component id (source of sent messages)
+   */
+  inline uint8_t get_component_id()
+  {
+    return source_component;
+  }
+
+  /**
+   * @brief Check that message target ids are ours (or broadcast, 0)
+   */
+  inline bool is_addressed_to_us(uint8_t tgt_system, uint8_t tgt_component)
+  {
+    return (tgt_system == 0 || tgt_system == get_system_id()) &&
+           (tgt_component == 0 || tgt_component == get_component_id());
+  }
+
   inline void set_tgt(uint8_t sys, uint8_t comp)
   {
     target_system = sys;
@@ -425,12 +450,12 @@ public:
 
   /* -*- time sync -*- */
 
-  inline void set_time_offset(uint64_t offset_ns)
+  inline void set_time_offset(int64_t offset_ns)
   {
     time_offset = offset_ns;
   }
 
-  inline uint64_t get_time_offset(void)
+  inline int64_t get_time_offset(void)
   {
     return time_offset;
   }
@@ -622,6 +647,7 @@ private:
 
   StrV plugin_allowlist;
   StrV plugin_denylist;
+  int rt_sched_fifo_priority;
 
   rclcpp::Node::OnSetParametersCallbackHandle::SharedPtr set_parameters_handle_ptr;
   rclcpp::TimerBase::SharedPtr startup_delay_timer;
@@ -652,13 +678,16 @@ private:
   std::vector<ConnectionCb> connection_cb_vec;
   std::vector<CapabilitiesCb> capabilities_cb_vec;
 
-  std::atomic<uint64_t> time_offset;
+  std::atomic<int64_t> time_offset;
   timesync_mode tsync_mode;
 
   // UAS -> Router connection
   mavlink::mavlink_status_t mavlink_status;
   rclcpp::Subscription<mavros_msgs::msg::Mavlink>::SharedPtr source;    // FCU -> UAS
   rclcpp::Publisher<mavros_msgs::msg::Mavlink>::SharedPtr sink;         // UAS -> FCU
+
+  //! delayed startup: read parameters, start the executor, load plugins
+  void startup();
 
   //! initialize connection to the Router
   void connect_to_router();
