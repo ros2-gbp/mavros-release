@@ -21,6 +21,7 @@
 #define MAVROS__MAVROS_ROUTER_HPP_
 
 #include <array>
+#include <cstring>
 #include <memory>
 #include <mutex>
 #include <set>
@@ -81,7 +82,7 @@ public:
   };
 
   Endpoint()
-  : parent(),
+  : parent(nullptr),
     id(0),
     link_type(Type::fcu),
     url{},
@@ -94,7 +95,13 @@ public:
     remote_addrs.emplace(broadcast_addr);
   }
 
-  std::shared_ptr<Router> parent;
+  // Non-owning back-reference. Endpoints are owned by Router, which detaches
+  // them (close() + parent = nullptr) in its destructor after the shared io
+  // thread has been joined, so no endpoint callback can observe a dangling
+  // pointer. A plain pointer keeps the per-message path free of atomics: a
+  // weak_ptr::lock() here would hit the Router control block from every link
+  // thread on every packet.
+  Router * parent;
 
   uint32_t id;                           // id of the endpoint
   Type link_type;                        // class of the endpoint
@@ -177,6 +184,12 @@ public:
     this->declare_parameter<StrV>("gcs_urls", StrV());
     this->declare_parameter<StrV>("uas_urls", StrV());
 
+    // Read-only: the io thread starts below, so later changes would not apply.
+    rcl_interfaces::msg::ParameterDescriptor rt_desc;
+    rt_desc.description = "SCHED_FIFO priority for the router io thread, 0 disables";
+    rt_desc.read_only = true;
+    const int rt_prio = this->declare_parameter<int>("rt_sched_fifo_priority", 0, rt_desc);
+
     add_service = this->create_service<mavros_msgs::srv::EndpointAdd>(
       "~/add_endpoint",
       [this](
@@ -215,11 +228,22 @@ public:
     RCLCPP_INFO(get_logger(), "Known MAVLink dialects:%s", ss.str().c_str());
     RCLCPP_INFO(get_logger(), "MAVROS Router started");
 
-    router_io_runner.start([this]() {this->router_io_runner.io().run();});
+    router_io_runner.start(
+      [this, rt_prio]() {
+        mavconn::utils::set_this_thread_name("router-io");
+        if (rt_prio > 0) {
+          int ret = mavconn::utils::set_this_thread_sched_fifo(rt_prio);
+          if (ret != 0) {
+            RCLCPP_WARN(
+              this->get_logger(), "router-io: SCHED_FIFO priority %d failed: %s",
+              rt_prio, std::strerror(ret));
+          }
+        }
+        this->router_io_runner.io().run();
+      });
 
-    // Delay parameter callback initialization because
-    // add/del endpoints calls have to use shared_from_this(),
-    // which cannot be used before we leave the constructor.
+    // Delay parameter callback initialization so that endpoints are not
+    // created before we leave the constructor.
     startup_delay_timer = this->create_wall_timer(
       10ms, [this]() {
         this->startup_delay_timer->cancel();
@@ -233,6 +257,16 @@ public:
     reconnect_timer->cancel();
     stale_addrs_timer->cancel();
     router_io_runner.shutdown_owned();
+
+    // The io thread is joined, so no link callback can run any more. Detach
+    // the endpoints: an endpoint that is still held elsewhere must not keep a
+    // pointer to this Router.
+    for (auto & kv : endpoints) {
+      kv.second->close();
+      kv.second->parent = nullptr;
+    }
+    endpoints.clear();
+    remote_index.clear();
   }
 
   void route_message(Endpoint::SharedPtr src, const mavlink_message_t * msg, const Framing framing);
