@@ -583,9 +583,10 @@ private:
   PR param_state;
 
   size_t param_rx_retries;
-  bool is_timedout;
+  std::atomic<bool> is_timedout;
   std::mutex list_cond_mutex;
   std::condition_variable list_receiving;
+  bool list_receiving_active{false};
 
   /* -*- message handlers -*- */
 
@@ -701,7 +702,10 @@ private:
           "not resetting retries count %zu", pmsg.param_index, param_rx_retries);
       }
 
-      restart_timeout_timer();
+      // Unsolicited replies must not postpone the current missing parameter's retry.
+      if (param_state != PR::RXPARAM_TIMEDOUT || it_is_first_requested) {
+        restart_timeout_timer();
+      }
 
       /* index starting from 0, receivig done */
       if (parameters_missing_idx.empty()) {
@@ -712,9 +716,9 @@ private:
           missed > 0, "PR: parameters list received, but %zd parametars are missed",
           missed);
         go_idle();
-        list_receiving.notify_all();
+        notify_list_receiving();
 
-      } else if (param_state == PR::RXPARAM_TIMEDOUT) {
+      } else if (param_state == PR::RXPARAM_TIMEDOUT && it_is_first_requested) {
         uint16_t first_miss_idx = parameters_missing_idx.front();
         RCLCPP_DEBUG(lg, "PR: requesting next timed out parameter idx=%u", first_miss_idx);
         param_request_read("", first_miss_idx);
@@ -793,6 +797,11 @@ private:
       schedule_pull();
     } else {
       schedule_timer->cancel();
+      if (param_state != PR::IDLE) {
+        is_timedout = true;
+        go_idle();
+        notify_list_receiving();
+      }
       clear_all_parameters();
     }
   }
@@ -811,11 +820,13 @@ private:
       // try later
       RCLCPP_DEBUG(get_logger(), "PR: busy, reschedule pull");
       schedule_pull();
+      return;
     }
 
     RCLCPP_DEBUG(get_logger(), "PR: start scheduled pull");
     param_state = PR::RXLIST;
     param_rx_retries = param_retries_count;
+    begin_list_receiving();
     clear_all_parameters();
 
     restart_timeout_timer();
@@ -836,6 +847,12 @@ private:
       restart_timeout_timer();
       param_request_list();
 
+    } else if (param_state == PR::RXLIST) {
+      RCLCPP_ERROR(lg, "PR: request list timeout, no retries left");
+      is_timedout = true;
+      go_idle();
+      notify_list_receiving();
+
     } else if (param_state == PR::RXPARAM || param_state == PR::RXPARAM_TIMEDOUT) {
       if (parameters_missing_idx.empty()) {
         RCLCPP_WARN(
@@ -843,7 +860,7 @@ private:
           "maybe last rerequest fails. Params missed: %zd",
           param_count - parameters.size());
         go_idle();
-        list_receiving.notify_all();
+        notify_list_receiving();
         return;
       }
 
@@ -860,8 +877,8 @@ private:
       } else {
         RCLCPP_ERROR(lg, "PR: request param #%u completely missing.", first_miss_idx);
         parameters_missing_idx.pop_front();
-        restart_timeout_timer();
         if (!parameters_missing_idx.empty()) {
+          restart_timeout_timer();
           param_rx_retries = param_retries_count;
           first_miss_idx = parameters_missing_idx.front();
 
@@ -869,6 +886,13 @@ private:
             lg, "PR: %zu params still missing, trying to request next: #%u",
             parameters_missing_idx.size(), first_miss_idx);
           param_request_read("", first_miss_idx);
+        } else {
+          ssize_t missed = param_count - parameters.size();
+          RCLCPP_WARN(
+            lg, "PR: parameters list received, but %zd parameters are missed",
+            missed);
+          go_idle();
+          notify_list_receiving();
         }
       }
 
@@ -916,13 +940,29 @@ private:
     timeout_timer->cancel();
   }
 
+  void begin_list_receiving()
+  {
+    std::lock_guard<std::mutex> cond_lock(list_cond_mutex);
+    list_receiving_active = true;
+  }
+
+  void notify_list_receiving()
+  {
+    {
+      std::lock_guard<std::mutex> cond_lock(list_cond_mutex);
+      list_receiving_active = false;
+    }
+    list_receiving.notify_all();
+  }
+
   bool wait_fetch_all()
   {
     std::unique_lock<std::mutex> lock(list_cond_mutex);
 
-    return list_receiving.wait_for(lock,
-          param_list_timeout.to_chrono<std::chrono::nanoseconds>()) == std::cv_status::no_timeout &&
-           !is_timedout;
+    return list_receiving.wait_for(
+      lock,
+      param_list_timeout.to_chrono<std::chrono::nanoseconds>(),
+      [this]() {return !list_receiving_active;}) && !is_timedout;
   }
 
   ParamSetOpt::Result wait_param_set_ack_for(const std::shared_ptr<ParamSetOpt> opt)
@@ -1006,6 +1046,7 @@ private:
 
       param_state = PR::RXLIST;
       param_rx_retries = param_retries_count;
+      begin_list_receiving();
       clear_all_parameters();
 
       schedule_timer->cancel();
