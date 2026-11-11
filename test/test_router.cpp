@@ -16,6 +16,8 @@
 
 #include <atomic>
 #include <cstdlib>
+#include <cstring>
+#include <future>
 #include <memory>
 #include <string>
 #include <thread>
@@ -114,19 +116,27 @@ public:
 
   ~TestRouter()
   {
-    // Break the Endpoint <-> Router reference cycle (router->endpoints and
-    // router->remote_index hold endpoints, and each endpoint->parent holds the
-    // router), otherwise the Router node (a DDS participant) is leaked. Leaked
-    // participants from concurrent test processes crash FastDDS discovery.
-    for (auto & router : routers_) {
-      router->endpoints.clear();
-      router->remote_index.clear();
-    }
+    // Release the Router nodes (DDS participants) before rclcpp::shutdown().
+    // Leaked participants from concurrent test processes crash FastDDS discovery.
     routers_.clear();
 
     // NOTE(vooon): required to remove any remaining Nodes
     // std::cout << "kill" << std::endl;
     rclcpp::shutdown();
+  }
+
+  void attach_lifetime_endpoint(Router::SharedPtr router, Endpoint::SharedPtr ep)
+  {
+    router->startup_delay_timer->cancel();
+    ep->parent = router.get();
+    router->endpoints[1] = ep;
+    router->remote_index[0] = {ep};
+  }
+
+  void clear_lifetime_endpoints(Router::SharedPtr router)
+  {
+    router->endpoints.clear();
+    router->remote_index.clear();
   }
 
   Router::SharedPtr create_node()
@@ -140,7 +150,7 @@ public:
       std::set<addr_t> remotes) {
         auto ep = std::make_shared<MockEndpoint>();
 
-        ep->parent = router;
+        ep->parent = router.get();
         ep->id = id;
         ep->link_type = type;
         ep->url = url;
@@ -245,7 +255,74 @@ public:
   {
     router->periodic_clear_stale_remote_addrs();
   }
+
+  void track_node(Router::SharedPtr router)
+  {
+    router->startup_delay_timer->cancel();
+    routers_.push_back(router);
+  }
+
+  int get_io_thread_policy(Router::SharedPtr router)
+  {
+    std::promise<int> policy;
+    asio::post(
+      *router->get_shared_io(), [&policy]() {
+        int pol = -1;
+        sched_param sp{};
+        pthread_getschedparam(pthread_self(), &pol, &sp);
+        policy.set_value(pol);
+      });
+    return policy.get_future().get();
+  }
 };
+
+TEST_F(TestRouter, endpoint_back_reference_does_not_retain_router)
+{
+  auto router = std::make_shared<Router>("router_lifetime_test");
+  auto endpoint = std::make_shared<StressEndpoint>();
+  attach_lifetime_endpoint(router, endpoint);
+  std::weak_ptr<Router> observer = router;
+  router.reset();
+  EXPECT_TRUE(observer.expired());
+  // Clean up the baseline's cycle if the regression assertion fails.
+  if (auto retained = observer.lock()) {
+    clear_lifetime_endpoints(retained);
+  }
+}
+
+TEST_F(TestRouter, ros_endpoint_rejects_open_after_router_destruction)
+{
+  auto router = std::make_shared<Router>("ros_endpoint_lifetime_test");
+  auto endpoint = std::make_shared<ROSEndpoint>();
+  attach_lifetime_endpoint(router, endpoint);
+  std::weak_ptr<Router> observer = router;
+  router.reset();
+  EXPECT_TRUE(observer.expired());
+  if (auto retained = observer.lock()) {
+    clear_lifetime_endpoints(retained);
+    return;
+  }
+  auto result = endpoint->open();
+  EXPECT_FALSE(result.first);
+  EXPECT_EQ(result.second, "parent not set");
+}
+
+TEST_F(TestRouter, mavconn_endpoint_rejects_open_after_router_destruction)
+{
+  auto router = std::make_shared<Router>("mavconn_endpoint_lifetime_test");
+  auto endpoint = std::make_shared<MAVConnEndpoint>();
+  attach_lifetime_endpoint(router, endpoint);
+  std::weak_ptr<Router> observer = router;
+  router.reset();
+  EXPECT_TRUE(observer.expired());
+  if (auto retained = observer.lock()) {
+    clear_lifetime_endpoints(retained);
+    return;
+  }
+  auto result = endpoint->open();
+  EXPECT_FALSE(result.first);
+  EXPECT_EQ(result.second, "parent not set");
+}
 
 TEST_F(TestRouter, set_parameter)
 {
@@ -487,7 +564,7 @@ TEST_F(TestRouter, route_drops_when_only_same_link_type_exists)
 
   auto make_ep = [router](id_t id, const std::string & url) {
       auto ep = std::make_shared<MockEndpoint>();
-      ep->parent = router;
+      ep->parent = router.get();
       ep->id = id;
       ep->link_type = LT::fcu;
       ep->url = url;
@@ -513,6 +590,57 @@ TEST_F(TestRouter, route_drops_when_only_same_link_type_exists)
   EXPECT_EQ(size_t(1), get_stat_msg_routed(router));
   EXPECT_EQ(size_t(0), get_stat_msg_sent(router));
   EXPECT_EQ(size_t(1), get_stat_msg_dropped(router));
+}
+
+TEST_F(TestRouter, route_truncated_target)
+{
+  auto router = this->create_node();
+
+  // MAVLink 2 trims trailing zero targets; bytes past len must not be read as a target.
+  auto ping = mavlink::common::msg::PING();
+  ping.target_system = 0x00;
+  ping.target_component = 0x00;
+  ping.seq = 1234;
+  ping.time_usec = 123456789000000ULL;
+
+  auto pmsg = convert_message(ping, 0x0101);
+  pmsg.len = 12;
+  _MAV_PAYLOAD_NON_CONST(&pmsg)[12] = static_cast<char>(0x02);
+  _MAV_PAYLOAD_NON_CONST(&pmsg)[13] = static_cast<char>(0xBF);
+  auto fr = Framing::ok;
+
+  DEFINE_EPS();
+
+  EXPECT_CALL(*fcu1, send_message(_, fr, _)).Times(0);
+  EXPECT_CALL(*fcu2, send_message(_, fr, _)).Times(0);
+  EXPECT_CALL(*uas1, send_message(_, fr, _));
+  EXPECT_CALL(*uas2, send_message(_, fr, _));
+  EXPECT_CALL(*gcs1, send_message(_, fr, _));
+  EXPECT_CALL(*gcs2, send_message(_, fr, _));
+
+  router->route_message(fcu1, &pmsg, fr);
+
+  VERIFY_EPS();
+}
+
+TEST_F(TestRouter, convert_zero_fills_tail)
+{
+  mavros_msgs::msg::Mavlink rmsg{};
+  rmsg.len = 12;
+  rmsg.payload64 = {0x0102030405060708ULL, 0x0000000011121314ULL};
+
+  mavlink_message_t mmsg;
+  std::memset(&mmsg, 0xA5, sizeof(mmsg));
+
+  ASSERT_TRUE(mavros_msgs::mavlink::convert(rmsg, mmsg));
+
+  const auto * payload = reinterpret_cast<const uint8_t *>(_MAV_PAYLOAD(&mmsg));
+  for (size_t i = 16; i < sizeof(mmsg.payload64); i++) {
+    EXPECT_EQ(0, payload[i]) << "payload byte " << i;
+  }
+  for (size_t i = 0; i < sizeof(mmsg.signature); i++) {
+    EXPECT_EQ(0, mmsg.signature[i]) << "signature byte " << i;
+  }
 }
 
 TEST_F(TestRouter, endpoint_recv_message)
@@ -595,7 +723,7 @@ TEST_F(TestRouter, route_stress_multithreaded_broadcast)
 
   auto make_ep = [router](id_t id, LT type) {
       auto ep = std::make_shared<StressEndpoint>();
-      ep->parent = router;
+      ep->parent = router.get();
       ep->id = id;
       ep->link_type = type;
       ep->remote_addrs = {0x0000};
@@ -648,6 +776,31 @@ TEST_F(TestRouter, route_stress_multithreaded_broadcast)
   EXPECT_EQ(dst2->send_count.load(), expected_sent_per_endpoint);
   EXPECT_EQ(dst3->send_count.load(), expected_sent_per_endpoint);
   EXPECT_EQ(dst4->send_count.load(), expected_sent_per_endpoint);
+}
+
+TEST_F(TestRouter, rt_sched_fifo_priority_default_off)
+{
+  auto router = std::make_shared<Router>("rt_default_test");
+  track_node(router);
+
+  EXPECT_EQ(0, router->get_parameter("rt_sched_fifo_priority").as_int());
+  EXPECT_FALSE(router->set_parameter(rclcpp::Parameter("rt_sched_fifo_priority", 10)).successful);
+  EXPECT_EQ(SCHED_OTHER, get_io_thread_policy(router));
+}
+
+TEST_F(TestRouter, rt_sched_fifo_priority_applies_to_io_thread)
+{
+  // Expected result depends on whether this process may use SCHED_FIFO at all.
+  int probe = -1;
+  std::thread([&probe]() {probe = mavconn::utils::set_this_thread_sched_fifo(1);}).join();
+
+  auto router = std::make_shared<Router>(
+    rclcpp::NodeOptions().parameter_overrides({{"rt_sched_fifo_priority", 1}}),
+    "rt_override_test");
+  track_node(router);
+
+  EXPECT_EQ(1, router->get_parameter("rt_sched_fifo_priority").as_int());
+  EXPECT_EQ(probe == 0 ? SCHED_FIFO : SCHED_OTHER, get_io_thread_policy(router));
 }
 
 #if 0  // TODO(vooon):
