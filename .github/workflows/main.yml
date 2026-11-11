@@ -1,0 +1,70 @@
+---
+
+name: Industrial CI
+
+on:
+  push:
+    branches: [master, ros2]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - 'LICENSE*'
+      - '.github/dependabot.yml'
+  pull_request:
+    branches: [master, ros2]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - 'LICENSE*'
+      - '.github/dependabot.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  industrial_ci:
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        env:
+          # - {ROS_DISTRO: foxy, ROS_REPO: testing}
+          # - {ROS_DISTRO: foxy, ROS_REPO: main}
+          # - {ROS_DISTRO: galactic, ROS_REPO: testing}
+          # - {ROS_DISTRO: galactic, ROS_REPO: main}
+          - {ROS_DISTRO: humble, ROS_REPO: main}
+          # - {ROS_DISTRO: iron, ROS_REPO: main}
+          - {ROS_DISTRO: jazzy, ROS_REPO: main}
+          - {ROS_DISTRO: kilted, ROS_REPO: main}
+          # lyrical has no released ros-lyrical-mavlink apt package yet, so
+          # build mavlink from source via dependencies.rosinstall (upstream ws).
+          # (rolling and lyrical mavlink releases are published together; same code.)
+          - {ROS_DISTRO: lyrical, ROS_REPO: main, UPSTREAM_WORKSPACE: dependencies.rosinstall}
+          - {ROS_DISTRO: rolling, ROS_REPO: testing}
+    env:
+      CCACHE_DIR: /github/home/.ccache
+      AFTER_INSTALL_TARGET_DEPENDENCIES: ./mavros/scripts/install_geographiclib_datasets.sh
+      # Enable the libmavconn e2e test dep (python3-pymavlink-pip) and allow
+      # rosdep to pip-install it on PEP 668 distros (jazzy+)
+      TEST_ENABLE_E2E: "1"
+      PIP_BREAK_SYSTEM_PACKAGES: "1"
+      # Run the mavros router Google Benchmark (~10 s per distro) in CI;
+      # AMENT_RUN_PERFORMANCE_TESTS is a CMake configure-time option, so it
+      # must be passed via CMAKE_ARGS (industrial_ci forwards it to colcon).
+      CMAKE_ARGS: "-DAMENT_RUN_PERFORMANCE_TESTS=ON"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7  # nosemgrep
+      - uses: actions/cache@v6  # nosemgrep
+        continue-on-error: true
+        with:
+          path: "${{ env.CCACHE_DIR }}"
+          key: "ccache-${{ runner.os }}-${{ matrix.env.ROS_DISTRO }}-${{ matrix.env.ROS_REPO }}-${{ hashFiles('**/package.xml', '**/CMakeLists.txt') }}"
+          restore-keys: |
+            ccache-${{ runner.os }}-${{ matrix.env.ROS_DISTRO }}-${{ matrix.env.ROS_REPO }}-
+      - uses: 'ros-industrial/industrial_ci@master'  # nosemgrep
+        env: ${{matrix.env}}
