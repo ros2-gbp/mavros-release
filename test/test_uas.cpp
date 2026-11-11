@@ -14,7 +14,10 @@
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
 
+#include <functional>
+#include <limits>
 #include <memory>
+#include <stdexcept>
 #include <string>
 
 #include "rclcpp/executors.hpp"
@@ -131,6 +134,26 @@ public:
     return uas;
   }
 
+  template<typename TimerT>
+  std::function<void()> take_callback(const std::shared_ptr<TimerT> & timer)
+  {
+    timer->reset();
+    // Humble: call() returns bool and execute_callback() takes no arguments.
+    // Newer rclcpp: call() returns the call info that execute_callback() consumes.
+    // Probe the execute_callback() signature, since call() exists on both.
+    if constexpr (requires(std::shared_ptr<void> data) {timer->execute_callback(data);}) {
+      auto data = timer->call();
+      return [timer, data]() {timer->execute_callback(data);};
+    } else {
+      return [timer]() {timer->execute_callback();};
+    }
+  }
+
+  std::function<void()> take_startup_callback(MockUAS::SharedPtr uas)
+  {
+    return take_callback(uas->startup_delay_timer);
+  }
+
   void set_lists(MockUAS::SharedPtr p, UAS::StrV denylist, UAS::StrV allowlist)
   {
     p->plugin_denylist = denylist;
@@ -180,6 +203,42 @@ public:
     return hb;
   }
 };
+
+TEST_F(TestUAS, startup_callback_after_context_shutdown)
+{
+  auto uas = create_node();
+  // Keep the baseline path from invoking an unconfigured mock plugin factory.
+  uas->set_parameter(rclcpp::Parameter("plugin_denylist", UAS::StrV{"*"}));
+  auto callback = take_startup_callback(uas);
+  rclcpp::shutdown();
+  EXPECT_NO_THROW(callback());
+}
+
+TEST_F(TestUAS, startup_shutdown_race_does_not_escape)
+{
+  auto uas = create_node();
+  EXPECT_CALL(*uas, create_plugin_instance(_)).WillOnce(
+    ::testing::InvokeWithoutArgs([]() -> plugin::Plugin::SharedPtr {
+      rclcpp::shutdown();
+      throw std::runtime_error("ROS resource creation interrupted by shutdown");
+    }));
+  auto callback = take_startup_callback(uas);
+  EXPECT_NO_THROW(callback());
+}
+
+TEST_F(TestUAS, startup_error_with_valid_context_is_not_hidden)
+{
+  auto uas = create_node();
+  EXPECT_CALL(*uas, create_plugin_instance(_)).WillOnce(
+    ::testing::InvokeWithoutArgs([]() -> plugin::Plugin::SharedPtr {
+      throw std::runtime_error("invalid startup configuration");
+    }));
+  auto callback = take_startup_callback(uas);
+  EXPECT_THROW(callback(), std::runtime_error);
+  EXPECT_TRUE(rclcpp::ok());
+  // Stop the context before local node destruction, even if its thread is still starting.
+  rclcpp::shutdown();
+}
 
 TEST_F(TestUAS, is_plugin_allowed)
 {
@@ -252,13 +311,31 @@ TEST_F(TestUAS, add_plugin__route_message__filter)
   testing::Mock::VerifyAndClearExpectations(&(*plugin2));
 }
 
+// UAS::is_addressed_to_us: target ids are ours or broadcast (0).
+TEST_F(TestUAS, is_addressed_to_us)
+{
+  auto uas = create_node();
+  testing::Mock::AllowLeak(&(*uas));
+
+  const uint8_t sys = uas->get_system_id();
+  const uint8_t comp = uas->get_component_id();
+
+  EXPECT_TRUE(uas->is_addressed_to_us(sys, comp));
+  EXPECT_TRUE(uas->is_addressed_to_us(0, 0));
+  EXPECT_TRUE(uas->is_addressed_to_us(sys, 0));
+  EXPECT_TRUE(uas->is_addressed_to_us(0, comp));
+  EXPECT_FALSE(uas->is_addressed_to_us(sys + 1, comp));
+  EXPECT_FALSE(uas->is_addressed_to_us(sys, comp + 1));
+  EXPECT_FALSE(uas->is_addressed_to_us(sys + 1, 0));
+}
+
 TEST_F(TestUAS, synchronise_stamp_negative_offset)
 {
   auto uas = create_node();
 
   // Scenario: FCU was on boot time, so offset is approx current epoch (e.g. 1.7e9 seconds)
   int64_t offset_ns = 1700000000LL * 1000000000LL;
-  uas->set_time_offset(static_cast<uint64_t>(offset_ns));
+  uas->set_time_offset(offset_ns);
 
   // FCU jumps to GPS time (also approx 1.7e9 seconds)
   // Use uint64_t version of synchronise_stamp
@@ -273,6 +350,40 @@ TEST_F(TestUAS, synchronise_stamp_negative_offset)
       {
         rclcpp::Time stamp = uas->synchronise_stamp(time_usec);
       });
+
+  // ... and must not publish a stamp whose int32 seconds overflow,
+  // it falls back to the current time
+  builtin_interfaces::msg::Time msg = uas->synchronise_stamp(time_usec);
+  EXPECT_GE(msg.sec, 0);
+}
+
+TEST_F(TestUAS, synchronise_stamp_small_negative_offset)
+{
+  auto uas = create_node();
+
+  // Scenario: PX4 SITL in lockstep, the FCU clock is 5 ms ahead of ROS sim time
+  uas->set_time_offset(-5000000);
+
+  EXPECT_EQ(uas->synchronise_stamp(uint32_t{1000}).nanoseconds(), 995000000);
+  EXPECT_EQ(uas->synchronise_stamp(uint64_t{1000000}).nanoseconds(), 995000000);
+}
+
+TEST_F(TestUAS, synchronise_stamp_out_of_range_falls_back_to_now)
+{
+  auto uas = create_node();
+
+  // a stamp below zero (FCU just booted) and one beyond int32 seconds both fall back to now()
+  uas->set_time_offset(-5000000);
+  EXPECT_NEAR(uas->synchronise_stamp(uint32_t{1}).seconds(), uas->now().seconds(), 1.0);
+
+  uas->set_time_offset(INT64_C(3000000000) * 1000000000);
+  EXPECT_NEAR(uas->synchronise_stamp(uint32_t{1000}).seconds(), uas->now().seconds(), 1.0);
+  EXPECT_NEAR(uas->synchronise_stamp(uint64_t{1000000}).seconds(), uas->now().seconds(), 1.0);
+
+  // a corrupt time_usec must not overflow
+  EXPECT_NEAR(
+    uas->synchronise_stamp(std::numeric_limits<uint64_t>::max()).seconds(),
+    uas->now().seconds(), 1.0);
 }
 
 }  // namespace uas
